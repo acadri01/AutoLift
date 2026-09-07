@@ -12,6 +12,27 @@ where Claude parks non-blocking questions + logs assumptions
 - Registry rework targets HKCU only (per user decision) — no HKLM/elevated
   fallback path is being built unless later requested.
 
+## Assumptions made — Phase 0 packaging (2026-09-07)
+- Kept the Documenter's fallback verb behaviour: no mode flag / a bare
+  folder argument falls back to `lift_documenter.main()`, matching today's
+  plain `lift_documenter.exe "%V"` registration. Only an explicit
+  `--creator` flag routes to the Creator.
+- `copy_main_cii.py` (a standalone side-tool, not part of the main
+  workflow) was carried into `src/creator/` but is not wired into
+  `launcher.py` or given a context-menu verb — the user asked for "the two"
+  verbs (Creator + Documenter), and this tool wasn't one of them. It's
+  present in source but currently unreachable from the built exe. Flag if
+  it should get its own `--copy-main-cii` mode.
+- Verb labels ("Full .C2 Lift Creation", "Open Lift Mark-up Documenter")
+  reuse the Creator's exact original label from its own code comment; the
+  Documenter's label wasn't given verbatim in its source (the comment only
+  says "Registry (folder background): lift_documenter.exe \"%V\"" with no
+  label text), so one was written to match the existing style. Cosmetic,
+  reversible.
+- Context-menu command registration re-checks and rewrites (if stale) on
+  *every* launch rather than only once — cheap, and means moving the exe
+  self-heals the menu, but it does mean a HKCU registry write on every run.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
 - RUN_PENDING → FORCES_READ completion detection: HANDOFF.md referenced an
   existing "C2Watchdog" `.c2db`-mtime-watch pattern that does not appear in

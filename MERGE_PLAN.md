@@ -1,10 +1,56 @@
 # MERGE_PLAN — LiftNeutralFileModifier + MarkUpGen → AutoLift
 
-> STATUS: agreed workflow, ready to build against. Supersedes the proposal in
-> the original HANDOFF.md — the items below were re-opened against the real
-> code (both zips read in full) and either confirmed or revised. See
-> PROGRESS.md for build status and QUESTIONS.md for assumptions logged along
-> the way.
+> STATUS: descoped by the user after this plan was written. Everything below
+> (in-process GUI refactor, callable-stage Creator, workflow state-machine
+> changes) is PAUSED, not abandoned — kept here as the documented next phase,
+> but nothing in it is being built right now. See "Phase 0" immediately below
+> for what is actually being built instead.
+
+## Phase 0 (current, in progress) — packaging only, zero behaviour change
+
+The user's revised instruction: bundle the two programs into one
+distributable .exe that also self-installs both context-menu verbs, with
+**no refactoring of the GUI or anything else** — both programs must keep
+functioning exactly as they do today, just packaged together.
+
+What this means concretely, and what it explicitly rules out (everything
+under "Phase 1+" below, until asked for again):
+
+- `src/creator/` and `src/documenter/` hold the two programs' original
+  files, copied in unmodified (byte-identical — verified with `diff` before
+  copying). `src/shared/` holds one copy of `lift_meta.py`/`line_layout.py`
+  (the two trees' copies were already byte-identical, so de-duplicating
+  them into one file changes nothing either program does).
+- `src/launcher.py` (new file) is the one PyInstaller entry point. It puts
+  all three source directories on `sys.path` (so the existing bare
+  `import lift_meta` / `import lift_db` style imports in the untouched
+  files keep resolving), then dispatches on an argv mode flag to either
+  program's own, unmodified `main()` — passing that program exactly the
+  argv shape it already expects (its own folder-path arg from `%V`).
+- `src/install_context_menu.py` (new file) silently (re)installs both
+  context-menu verbs under **HKCU** (per-user, no elevation) every launch,
+  self-healing if the exe is moved. Replaces the two separate registrations
+  the old exes used to need done by hand.
+- `lift_doc_tool.cfg` (the Documenter's runtime DB-location file) is
+  intentionally **not** committed — it's generated state, not source, and
+  the one seen in the provided zip held a real deployed network path. DB
+  location/behaviour is otherwise untouched: same cfg format, same
+  first-run prompt, same shared-store model as discussed and preserved.
+- `autolift.spec` (new) replaces `create_lift_case.spec` and
+  `lift_documenter.spec` with one PyInstaller build producing one `AutoLift.exe`.
+
+Not part of Phase 0 — deferred to Phase 1+ below, unchanged from before:
+`ui_dialogs.py` staying `tk.Tk()`-per-dialog (not `Toplevel`), no in-process
+"Create lift case" action inside `DocumenterApp`, no workflow state-machine
+changes, no zero-touch DB discovery logic. The two programs remain two
+separate, independent code paths that happen to ship in one exe.
+
+---
+
+## Phase 1+ (paused — the fuller merge, not being built right now)
+
+Below is the plan as originally converged on, before the user descoped to
+Phase 0. Restart here if/when asked to continue the deeper merge.
 
 ## Goal (unchanged, firm)
 One self-contained, easily-downloadable Windows program, launched from the
