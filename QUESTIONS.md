@@ -33,6 +33,22 @@ where Claude parks non-blocking questions + logs assumptions
   *every* launch rather than only once — cheap, and means moving the exe
   self-heals the menu, but it does mean a HKCU registry write on every run.
 
+## Assumptions made — SPEC.md / README.md / TESTING.md (2026-09-08)
+- Dropped the template's "tests pass; app runs from a clean checkout via
+  setup.sh" acceptance-criteria line entirely rather than adapting it —
+  there's no setup.sh or CI in this repo, and none is realistic for a
+  Windows-only, CAESAR-II-dependent Tkinter app. TESTING.md's manual
+  tutorial is the substitute verification path. Reversible/cosmetic if a
+  real automated check is ever wanted.
+- TESTING.md's build/run instructions are written correctly against the
+  actual `autolift.spec`/`requirements.txt`, but the literal console output
+  shown is described functionally, not copied from a real run — this dev
+  session is Linux and cannot execute the Windows build. Flagged explicitly
+  in TESTING.md itself rather than presented as verified.
+- README.md's workflow section presents the CAESAR-run step (RUN_PENDING)
+  as "external, user-driven" without implying any detection exists yet —
+  matches SPEC.md Milestone 6 being unbuilt.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
 - RUN_PENDING → FORCES_READ completion detection: HANDOFF.md referenced an
   existing "C2Watchdog" `.c2db`-mtime-watch pattern that does not appear in

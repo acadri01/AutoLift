@@ -26,3 +26,22 @@ running status log Claude appends to (skim this from mobile)
   and both programs are Windows-native (win32com, ctypes.windll, winreg,
   tkinter GUIs). `pyinstaller autolift.spec` and a smoke test of both
   context-menu verbs need to happen on a Windows machine.
+- 2026-09-08: PR #1 (Phase 0 packaging) merged by the user via GitHub
+  comment ("This looks good. Proceed"). Restarted this branch from the
+  merged main per convention.
+- 2026-09-08: Filled in SPEC.md collaboratively. Confirmed with the user
+  that the support-placement-automation language that had appeared in
+  CLAUDE.md was erroneous boilerplate (since removed by the user) — not a
+  real requirement, so it's explicitly OUT of scope in SPEC.md. Milestone
+  list (SPEC.md's "## Milestones") is Phase 0 (done) followed by Phase 1
+  broken into 5 smaller milestones (tool_discovery, in-process Creator
+  refactor, single-window integration, zero-touch first-run polish,
+  RUN_PENDING detection) per the user's explicit request to split it up
+  rather than one big "Phase 1" entry. MERGE_PLAN.md's "Phase 1+" section
+  un-paused and pointed at SPEC.md as the authoritative ordering.
+- 2026-09-08: Wrote README.md (workflow section is the centrepiece, per
+  the user's request) and TESTING.md (tutorial-first, per CLAUDE.md's
+  mandate). Both are honest about what's actually been verified in this
+  Linux dev session (py_compile only) versus what still needs a real
+  Windows/CAESAR II run — TESTING.md's "Test this now" section asks for
+  exactly that.
