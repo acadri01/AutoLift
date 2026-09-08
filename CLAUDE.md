@@ -35,13 +35,6 @@ the review loop working as intended.
 - Append a one-line status to PROGRESS.md after each meaningful step (what changed + why).
 - Never halt on the first blocker. Keep working on every unblocked path; accumulate open
   questions in QUESTIONS.md and continue elsewhere.
-- Support-placement logic (what makes a location a rest, hold-down, guide, line stop, or anchor,
-  and where) is defined **one support type at a time, with me consulted on the logic before it's
-  implemented** — not decided unilaterally, even under the decide-and-proceed rule below. This
-  overrides the general decide-and-proceed bucket for this specific class of decision.
-- No spring logic of any kind for the MVP — not implemented, not stubbed, not mentioned in docs
-  or output. If a task seems to call for it, skip that part and note why in QUESTIONS.md instead
-  of adding a placeholder.
 - Keep TESTING.md current — instructions for how to test the program (automated and manual).
   Update it whenever what/how to test changes (a new project, a new fixture convention, a new
   manual check that matters), and consult it whenever testing is relevant to the task at hand.
@@ -52,8 +45,8 @@ the review loop working as intended.
   the real build before committing it — don't write example output from memory. Developer-only
   reference material (what each automated test covers, how to add a fixture, etc.) belongs after
   the tutorial, not instead of it.
-- **TESTING.md's "Test this now" section is a dynamic document, per direct instruction (2026-08-26)**:
-  whenever a round of work needs something only the user can do (running `iecho.exe` or anything
+- **TESTING.md's "Test this now" section is a dynamic document**:
+  Whenever a round of work needs something only the user can do (running `iecho.exe` or anything
   else Claude can't run itself), that section — not a scattered PR comment — is where the exact
   command(s) to run and what to report back live, so there's always exactly one place to check
   for "what does Claude want me to test." Rewrite it every round: replace the previous ask once
