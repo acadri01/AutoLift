@@ -26,12 +26,14 @@ Phase 0 packaging (one exe, self-installing context menus) is confirmed
 working on a real machine — thank you. Two things changed since then that
 still need a real Windows + CAESAR II check:
 
-1. **Context menu is now a submenu.** Right-click empty space in a folder —
-   you should see one **"AutoLift"** entry that expands to "Full .C2 Lift
-   Creation" and "Open Lift Mark-up Documenter", instead of the two
-   top-level entries from before. If you still see the old flat two-item
-   layout after rebuilding and running the new exe once, the legacy-key
-   cleanup in `install_context_menu.py` didn't do its job — report that.
+1. **Context menu is now a submenu — just re-fixed, needs re-verifying.**
+   Right-click empty space in a folder — you should see one **"AutoLift"**
+   entry that expands to "Full .C2 Lift Creation" and "Open Lift Mark-up
+   Documenter". This was reported broken (parent showed, no children) and
+   is now fixed (a `(Default)` value on the parent key was blocking the
+   submenu — see PROGRESS.md for the root cause). **Pull the latest change
+   first** (see "Getting the latest changes" in Step 1 below), rebuild, run
+   once, and confirm both items now appear in the submenu.
 
 2. **New engineering logic in the Creator — this is the important one.**
    `neutral_patcher.py` now walks past a rigid element, reducer, or
@@ -75,21 +77,46 @@ anything above broke the build.
 
 ## Step 1 — Get the code
 
-If you have Git:
+**First time only:**
 
 ```
 git clone https://github.com/acadri01/AutoLift.git
 cd AutoLift
+git checkout claude/repo-mapping-modules-xomccd
 ```
 
-If the branch you want isn't `main`, check it out:
-
-```
-git checkout <branch-name>
-```
+(That branch is the current work-in-progress being tested — it's the head
+of [PR #2](https://github.com/acadri01/AutoLift/pull/2). Once that PR is
+merged, `main` will have it and this checkout step won't be needed.)
 
 (If you downloaded a ZIP from GitHub instead, extract it and `cd` into the
-extracted folder — skip the `git` commands.)
+extracted folder — skip the `git` commands, but you'll need to re-download
+the ZIP each time there's an update, since the steps below don't apply.)
+
+### Getting the latest changes (every time after the first)
+
+I never rewrite history on this branch — I only add commits — so a plain
+`git pull` always works cleanly, no force needed:
+
+```
+cd AutoLift
+git checkout claude/repo-mapping-modules-xomccd
+git pull
+```
+
+Two things worth knowing:
+
+- **Check for local changes first if you're unsure**: run `git status`
+  before pulling. "nothing to commit, working tree clean" means you're
+  safe to pull. `dist/`, `build/`, and `__pycache__/` are already
+  gitignored, so build output never interferes.
+- **If you do have local changes you don't want** (e.g. you edited a file
+  to poke at something): `git stash` before pulling, or
+  `git checkout -- .` to discard them, then pull.
+
+You can always confirm you're on the latest commit with
+`git log -1 --oneline` and compare against what's shown at the top of
+[PR #2](https://github.com/acadri01/AutoLift/pull/2).
 
 ## Step 2 — Install the Python dependencies
 
