@@ -21,6 +21,17 @@ in a folder):
 
 Cascading submenus for a Windows Explorer shell verb use the standard
 SubCommands="" + nested `shell` subkey convention - see MENU_KEY below.
+
+IMPORTANT (found via real-machine testing, 2026-09-08): the parent verb's
+display label must come from MUIVerb, NOT the key's (Default) value -
+Microsoft's own docs are explicit that "The (Default) value for the
+[cascade menu] subkey should not be set." A first version of this file got
+that backwards (set (Default), no MUIVerb): the parent showed up with the
+right label but its children never appeared, on a real Windows machine,
+even after an Explorer restart. ensure_installed() below explicitly
+deletes any stray (Default) value on the parent key for exactly that
+reason - on an existing install from that earlier version, simply not
+setting it going forward wouldn't remove what's already there.
 """
 
 from __future__ import annotations
@@ -70,13 +81,34 @@ def _set_default_value(winreg, key_path: str, value: str) -> None:
         winreg.SetValueEx(k, None, 0, winreg.REG_SZ, value)
 
 
-def _get_default_value(winreg, key_path: str):
+def _get_value(winreg, key_path: str, name):
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as k:
-            val, _ = winreg.QueryValueEx(k, None)
+            val, _ = winreg.QueryValueEx(k, name)
             return val
     except FileNotFoundError:
         return None
+
+
+def _get_default_value(winreg, key_path: str):
+    return _get_value(winreg, key_path, None)
+
+
+def _set_named_value(winreg, key_path: str, name: str, value: str) -> None:
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as k:
+        winreg.SetValueEx(k, name, 0, winreg.REG_SZ, value)
+
+
+def _delete_default_value(winreg, key_path: str) -> None:
+    """Remove a (Default) value if one is set - a cascade-menu parent key
+    must not have one (see the module docstring)."""
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS
+        ) as k:
+            winreg.DeleteValue(k, "")
+    except FileNotFoundError:
+        pass
 
 
 def _remove_key_tree(winreg, key_path: str) -> None:
@@ -105,10 +137,15 @@ def ensure_installed(force: bool = False) -> None:
     parent_key = f"{BASE}\\{MENU_KEY}"
     shell_key = f"{parent_key}\\shell"
 
-    if _get_default_value(winreg, parent_key) != MENU_LABEL or force:
-        _set_default_value(winreg, parent_key, MENU_LABEL)
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, parent_key) as k:
-        winreg.SetValueEx(k, "SubCommands", 0, winreg.REG_SZ, "")
+    # The parent's label comes from MUIVerb, never (Default) - a (Default)
+    # value on a cascade-menu key stops its children from showing (see the
+    # module docstring). Explicitly remove any stray one left by an earlier
+    # version of this file.
+    _delete_default_value(winreg, parent_key)
+    if _get_value(winreg, parent_key, "MUIVerb") != MENU_LABEL or force:
+        _set_named_value(winreg, parent_key, "MUIVerb", MENU_LABEL)
+    if _get_value(winreg, parent_key, "SubCommands") != "" or force:
+        _set_named_value(winreg, parent_key, "SubCommands", "")
 
     for verb in VERBS:
         verb_key = f"{shell_key}\\{verb['key']}"

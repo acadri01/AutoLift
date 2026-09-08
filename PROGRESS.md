@@ -106,3 +106,13 @@ running status log Claude appends to (skim this from mobile)
   verify the ultimate real-world question — does the patched file still
   convert through `iecho.exe` and open correctly in CAESAR II — from this
   Linux session; asked for that in TESTING.md's "Test this now".
+- 2026-09-08: Real-machine bug report: the grouped "AutoLift" context menu
+  showed the parent entry but no children, even after an Explorer restart.
+  Root cause (confirmed against Microsoft's own docs, not guessed): a
+  cascade-menu parent key using `SubCommands` must NOT have a `(Default)`
+  value set — the label must come from `MUIVerb` instead. My first version
+  set `(Default)` and never set `MUIVerb`. Fixed in
+  `install_context_menu.py`: parent label now written to `MUIVerb`, and
+  `ensure_installed()` explicitly deletes any stray `(Default)` value on
+  the parent key so an existing (already-broken) install self-heals too,
+  not just fresh ones.
