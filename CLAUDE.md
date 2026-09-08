@@ -33,15 +33,8 @@ the review loop working as intended.
 - Work in small, reviewable commits. Keep the build runnable at every commit.
 - Match existing patterns and conventions in the repo before introducing new ones.
 - Append a one-line status to PROGRESS.md after each meaningful step (what changed + why).
-- Never halt on the first blocker. Keep working every unblocked path; accumulate open
+- Never halt on the first blocker. Keep working on every unblocked path; accumulate open
   questions in QUESTIONS.md and continue elsewhere.
-- **Always consult `reference/` before touching anything about the neutral file format or
-  CAESAR II input/output behavior.** Correct formatting is imperative — a real, working bug
-  (LF vs. CRLF line endings, causing `iecho.exe` to reject Conduit's output) came from relying on
-  a paraphrase instead of checking the primary source. Re-verify against `reference/`'s vendor
-  PDFs (and, when the user provides them, real files) rather than trusting an earlier summary in
-  SPEC.md or in this session's own memory — SPEC.md's prose can drift from the source; the PDFs
-  can't.
 - Support-placement logic (what makes a location a rest, hold-down, guide, line stop, or anchor,
   and where) is defined **one support type at a time, with me consulted on the logic before it's
   implemented** — not decided unilaterally, even under the decide-and-proceed rule below. This
