@@ -1,0 +1,8 @@
+# AutoLift - Python dependencies (union of both merged programs)
+# Install with:
+#   python -m pip install -r requirements.txt
+pillow>=10.0
+pywin32>=306
+reportlab>=4.0
+pypdf>=4.0
+pymupdf>=1.24
