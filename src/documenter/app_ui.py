@@ -468,6 +468,9 @@ class DocumenterApp(tk.Tk):
         elif kind == "line":
             m.add_command(label="Archive line",
                           command=lambda: self._archive_line(int(sid)))
+        elif kind == "case":
+            m.add_command(label="Archive case",
+                          command=lambda: self._archive_case(int(sid)))
         else:
             return
         try:
@@ -506,6 +509,24 @@ class DocumenterApp(tk.Tk):
         self.db.archive_line(line_id)
         self.refresh()
         self.say(f"Line {ln['line_no']} archived.")
+
+    def _archive_case(self, case_id: int):
+        case = self.db.get_case(case_id)
+        if not case:
+            return
+        if not messagebox.askyesno(
+                "Archive case",
+                f"Archive lift case {case['case_name']}?\n\n"
+                "It will be hidden from its line and excluded from exports. "
+                "You can restore it from View archive.",
+                parent=self):
+            return
+        self.flush()
+        self.db.archive_case(case_id)
+        self.reload_line(case["line_id"])
+        if isinstance(self._panel, LinePanel) and self._panel.case_id == case_id:
+            self._panel.show_overview()
+        self.say(f"Case {case['case_name']} archived.")
 
     def _open_archive(self):
         _ArchiveWindow(self, self.db)
@@ -557,7 +578,7 @@ class _ArchiveWindow(tk.Toplevel):
         self.app = app
         self.db = db
         self.title("Archive")
-        self.geometry("640x560")
+        self.geometry("640x760")
         self.transient(app)
         self._build()
         self._reload()
@@ -585,6 +606,20 @@ class _ArchiveWindow(tk.Toplevel):
         ttk.Button(self, text="Restore line",
                    command=self._restore_line).pack(anchor="w", padx=PAD, pady=(2, PAD))
 
+        cf = ttk.LabelFrame(self, text="Archived lift cases", padding=PAD)
+        cf.pack(fill="both", expand=True, padx=PAD, pady=(0, 0))
+        self.case_tv = ttk.Treeview(cf, columns=("line", "wo"), show="tree headings",
+                                    selectmode="browse", height=8)
+        self.case_tv.heading("#0", text="Case"); self.case_tv.heading("line", text="Line")
+        self.case_tv.heading("wo", text="Work order")
+        self.case_tv.column("#0", width=240); self.case_tv.column("line", width=160)
+        self.case_tv.column("wo", width=140)
+        self.case_tv.pack(side="left", fill="both", expand=True)
+        csb = ttk.Scrollbar(cf, orient="vertical", command=self.case_tv.yview)
+        self.case_tv.configure(yscrollcommand=csb.set); csb.pack(side="right", fill="y")
+        ttk.Button(self, text="Restore case",
+                   command=self._restore_case).pack(anchor="w", padx=PAD, pady=(2, PAD))
+
         ttk.Button(self, text="Close", command=self.destroy).pack(side="right",
                                                                    padx=PAD, pady=(0, PAD))
 
@@ -596,6 +631,10 @@ class _ArchiveWindow(tk.Toplevel):
         for ln in self.db.archived_lines():
             self.ln_tv.insert("", "end", iid=str(ln["id"]), text=ln["line_no"],
                               values=(ln["wo_no"],))
+        self.case_tv.delete(*self.case_tv.get_children())
+        for c in self.db.archived_cases():
+            self.case_tv.insert("", "end", iid=str(c["id"]), text=c["case_name"],
+                                values=(c["line_no"], c["wo_no"]))
 
     def _restore_wo(self):
         sel = self.wo_tv.selection()
@@ -617,6 +656,19 @@ class _ArchiveWindow(tk.Toplevel):
         self.app.refresh()
         self.app.say("Line restored.")
 
+    def _restore_case(self):
+        sel = self.case_tv.selection()
+        if not sel:
+            messagebox.showinfo("Restore", "Select an archived case.", parent=self)
+            return
+        case_id = int(sel[0])
+        case = self.db.get_case(case_id)
+        self.db.restore_case(case_id)
+        self._reload()
+        if case:
+            self.app.reload_line(case["line_id"])
+        self.app.say("Case restored.")
+
 
 # ======================================================================
 # Database admin  (ADVANCED - permanent delete, typed confirm + backup)
@@ -634,8 +686,8 @@ class _DbAdminWindow(tk.Toplevel):
         self.grab_set()
 
     def _build(self):
-        warn = ("Permanent delete. Removes the work order or line and ALL of its "
-                "data (isos, lift cases, supports, lift points) plus the "
+        warn = ("Permanent delete. Removes the work order, line, or lift case and "
+                "ALL of its data (isos, lift cases, supports, lift points) plus the "
                 "associated files under the database folder. This cannot be "
                 "undone. Archived items are shown too.")
         ttk.Label(self, text=warn, wraplength=580, foreground="#a00",
@@ -663,8 +715,12 @@ class _DbAdminWindow(tk.Toplevel):
                                  text=f"{wo['wo_no']}{tag}", open=False)
             for ln in self.db.lines_for_wo(wo["id"], include_archived=True):
                 ltag = "  [archived]" if ln["archived"] else ""
-                self.tv.insert(wid, "end", iid=f"line:{ln['id']}",
-                               text=f"{ln['line_no']}{ltag}")
+                lid = self.tv.insert(wid, "end", iid=f"line:{ln['id']}",
+                                     text=f"{ln['line_no']}{ltag}")
+                for c in self.db.cases_for_line(ln["id"], include_archived=True):
+                    ctag = "  [archived]" if c["archived"] else ""
+                    self.tv.insert(lid, "end", iid=f"case:{c['id']}",
+                                   text=f"{c['case_name']}{ctag}")
 
     def _delete(self):
         sel = self.tv.selection()
@@ -680,11 +736,16 @@ class _DbAdminWindow(tk.Toplevel):
             if not wo:
                 return
             name, label = wo["wo_no"], f"work order {wo['wo_no']}"
-        else:
+        elif kind == "line":
             ln = self.db.get_line(sid)
             if not ln:
                 return
             name, label = ln["line_no"], f"line {ln['line_no']}"
+        else:
+            case = self.db.get_case(sid)
+            if not case:
+                return
+            name, label = case["case_name"], f"lift case {case['case_name']}"
 
         typed = simpledialog.askstring(
             "Confirm permanent delete",
@@ -711,8 +772,10 @@ class _DbAdminWindow(tk.Toplevel):
 
         if kind == "wo":
             summ = self.db.purge_wo(sid, delete_files=True)
-        else:
+        elif kind == "line":
             summ = self.db.purge_line(sid, delete_files=True)
+        else:
+            summ = self.db.purge_case(sid, delete_files=True)
 
         self._reload()
         self.app.refresh()

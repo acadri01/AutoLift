@@ -22,22 +22,43 @@ This document is two things:
 
 ## Test this now
 
-**Nothing is blocking on your input right now.** The last completed work
-was Phase 0 packaging (see PROGRESS.md) — merged, but never built or run.
+Phase 0 packaging (one exe, self-installing context menus) is confirmed
+working on a real machine — thank you. Two things changed since then that
+still need a real Windows + CAESAR II check:
 
-If you have a spare few minutes on a Windows machine with CAESAR II
-installed, the single most valuable thing you can do is run the full
-tutorial below once and report back:
+1. **Context menu is now a submenu.** Right-click empty space in a folder —
+   you should see one **"AutoLift"** entry that expands to "Full .C2 Lift
+   Creation" and "Open Lift Mark-up Documenter", instead of the two
+   top-level entries from before. If you still see the old flat two-item
+   layout after rebuilding and running the new exe once, the legacy-key
+   cleanup in `install_context_menu.py` didn't do its job — report that.
 
-1. Did `pyinstaller autolift.spec` complete without errors?
-2. Did `dist\AutoLift.exe` launch without a console window or crash?
-3. Do **both** "Full .C2 Lift Creation" and "Open Lift Mark-up Documenter"
-   appear when you right-click empty space in a folder?
-4. Does each verb still behave exactly like the old separate exes did?
+2. **New engineering logic in the Creator — this is the important one.**
+   `neutral_patcher.py` now walks past a rigid element, reducer, or
+   expansion joint next to a lift/support node (instead of splitting it,
+   which CAESAR can't accept a displacement on) to find the next plain pipe
+   element, and — if that element's far end is a bend — shrinks the
+   placement spacing to leave the bend's required tangent length clear.
+   This has been checked two ways so far, neither of which is a substitute
+   for the real thing:
+   - Against real `.cii` files (not shipped in this repo) to confirm the
+     rigid/bend detection reads the right pointers and produces
+     structurally valid, re-parseable output with sane numbers.
+   - Pure-function unit checks of the angle/tangent-length geometry math.
 
-Paste back anything that didn't match what's described below (exact error
-text, a screenshot, whatever you've got) — that's what turns this from "a
-plan" into "a verified doc."
+   **What's still unverified**: whether a `.CII` patched this way actually
+   converts cleanly through `iecho.exe` and opens correctly in CAESAR II,
+   and whether the resulting lift-point placement matches what an engineer
+   would actually want to see for a real rigid-element or bend scenario.
+   If you have a job with a lift point near a rigid support or a bend,
+   please run "Full .C2 Lift Creation" on it, watch for the new warning
+   messages (they name exactly which elements were skipped and why, and
+   report any spacing that got reduced for bend clearance), open the
+   result in CAESAR II, and report back whether the placement looks right.
+
+Also still true from before: `pyinstaller autolift.spec` and the exe launch
+itself are worth re-confirming after pulling these changes, in case
+anything above broke the build.
 
 ---
 
@@ -190,6 +211,14 @@ functions or pure data transforms:
 - `src/creator/neutral_reader.py` / `neutral_writer.py` — CAESAR neutral
   file parsing/formatting, given a sample `.CII` fixture (would need a
   real, license-clean sample file to test against).
+- `src/creator/neutral_patcher.py`'s `_bend_deflection_deg`,
+  `_bend_tangent_length_mm`, `_read_bend_radii`, and `_bend_corner_radii` —
+  pure geometry/parsing functions, no I/O, no CAESAR needed. Already
+  spot-checked by hand during development (straight/45°/90°/180° deflection
+  cases, known `R·tan(Δ/2)` tangent values, and a real `#$ BEND` byte
+  fragment) but not committed as a real test file yet — worth formalizing
+  first if this repo ever adds a test suite, since it's the highest-stakes
+  pure logic in the codebase.
 
 Everything else (both `ui_dialogs.py`/Tkinter, `iecho.py`'s subprocess
 calls, `lift_db.py`'s SQLite access, PDF rendering) either needs Windows,

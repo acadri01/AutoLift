@@ -45,3 +45,64 @@ running status log Claude appends to (skim this from mobile)
   Linux dev session (py_compile only) versus what still needs a real
   Windows/CAESAR II run — TESTING.md's "Test this now" section asks for
   exactly that.
+- 2026-09-08: User confirmed Phase 0 (build + both context-menu verbs)
+  works on a real Windows machine.
+- 2026-09-08: Cloned acadri01/Conduit (read-only, same user's separate
+  clean-room CAESAR II tool) to pull reference material. Copied
+  `reference/*.pdf` (vendor CAESAR II docs) + a rewritten README into
+  AutoLift's own new `reference/` folder, deliberately excluding Conduit's
+  `pipe-stress-engineering/` subfolder per direct instruction. Conduit's
+  `docs/neutral-file/WALKTHROUGH.md` and its `fixtures/real-samples/*.cii`
+  (real CAESAR files, not copied into AutoLift) supplied byte-level
+  ground truth for the `#$ BEND` record layout used below.
+- 2026-09-08: Three feature requests implemented:
+  1. **Context menu grouped under one "AutoLift" submenu.** Rewrote
+     `install_context_menu.py` to nest both verbs under a single cascading
+     parent entry (`SubCommands=""` + nested `shell` key, standard Explorer
+     convention) instead of two flat top-level items, and to clean up the
+     old flat keys on next launch so an upgrade doesn't leave duplicates.
+  2. **Archive/delete a lift case.** Added `archived`/`archived_at` columns
+     to `lift_cases` (mirrors the existing `lines`/`work_orders` pattern),
+     `archive_case`/`restore_case`/`archived_cases`/`purge_case` to
+     `lift_db.py`, an "Archive case" button in the case detail view and a
+     tree right-click "Archive case" entry, a third "Archived lift cases"
+     pane + restore button in the Archive browser, and cases nested under
+     lines (with permanent delete) in the Database admin panel.
+  3. **Rigid/reducer/expansion-joint-aware, bend-clearance-aware lift-point
+     placement** — the significant one. `neutral_patcher.py`'s element
+     selection now walks past a rigid element, reducer, or expansion joint
+     next to a support/lift node (none of which can carry an imposed
+     displacement) to find the next plain pipe element, preserving the
+     configured spacing as a distance from the support node across every
+     skipped hop; and if the chosen element's far node is a bend corner,
+     computes that bend's minimum required tangent length
+     (`T = R * tan(deflection/2)`) from the ADJACENT ELEMENTS' OWN GEOMETRY
+     (unit-vector dot product), not the `#$ BEND` record's angle fields —
+     confirmed via Conduit's own real-sample cross-check that those fields
+     aren't reliably understood — and shrinks the placement spacing to
+     leave that tangent length clear, or walks past the element entirely if
+     the bend would consume it. A SIF/tee pointer on the chosen element is
+     warned about, not skipped past. IEL pointer indices (bend=2, rigid=3,
+     expjt=4, SIF/intersection=12, reducer=14) and the `#$ BEND` record's
+     3-line/14-value layout were verified two ways: against
+     `reference/NeutralFile-v15.pdf`'s own "IEL array" description, and
+     directly against real `#$ ELEMENTS`/`#$ BEND` bytes in Conduit's
+     `fixtures/real-samples/44002.cii`. The plain "too-short" case (no
+     rigid/bend involved) still routes through the existing
+     `ElementOverrideDialog` path unchanged — only genuinely new, mechanical
+     situations (skip, bend clamp) get the new auto-handling.
+- 2026-09-08: Verified the new patcher logic three ways before considering
+  it done enough to hand off: (1) pure unit checks of the angle/tangent
+  geometry math (straight/45°/90°/180° cases, known R·tan(Δ/2) values);
+  (2) a full `read_neutral_file` → `patch_model` → `read_neutral_file`
+  round-trip against the real `44002.cii` sample, lifting a node bracketed
+  by two rigid elements on one side and one on the other — correctly
+  multi-hop-skipped all three, the patched file re-parsed cleanly, and
+  `#$ CONTROL`'s `NUMELT` matched the new element count exactly;
+  (3) the same round-trip lifting a node next to a real 90° bend (radius
+  381 mm) — the computed deflection angle (90.0°, from the real element
+  geometry) and tangent length (381 mm) matched hand-calculation exactly,
+  and the spacing reduction (750→500 mm) was arithmetically exact. Cannot
+  verify the ultimate real-world question — does the patched file still
+  convert through `iecho.exe` and open correctly in CAESAR II — from this
+  Linux session; asked for that in TESTING.md's "Test this now".

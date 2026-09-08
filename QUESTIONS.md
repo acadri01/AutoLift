@@ -49,6 +49,39 @@ where Claude parks non-blocking questions + logs assumptions
   as "external, user-driven" without implying any detection exists yet —
   matches SPEC.md Milestone 6 being unbuilt.
 
+## Assumptions made — context menu, case archive, rigid/bend logic (2026-09-08)
+- **Spacing is measured cumulatively from the support node, across every
+  skipped rigid/reducer/expansion-joint element** — not reset to "distance
+  from wherever the first plain pipe element happens to start." This
+  follows directly from `config.py`'s own docstring ("Distance from
+  restrained node to new displacement BC node"), and was judged
+  low-risk/reversible enough to proceed on rather than block on, but it's
+  the single most important behavioural assumption in the new patcher logic
+  — flag it explicitly if a real CAESAR check shows the placement should be
+  measured differently.
+- **Bend clearance shortfall auto-clamps and warns; it does NOT open the
+  existing `ElementOverrideDialog`.** The plain "element shorter than
+  requested spacing" case (no bend involved) still goes through that
+  dialog, unchanged. Reasoning: a bend-clearance shortfall has one
+  mechanically correct fix (shrink spacing to the available tangent-clear
+  length, or walk past if that's zero) — there's no "which element did you
+  actually mean" ambiguity for the dialog to resolve, unlike the pre-
+  existing short-element case.
+- **A SIF/tee pointer warns but never blocks or skips** — matches the
+  literal instruction ("there should be a warning"), not treated as a
+  reason to walk further like rigid/reducer/expansion-joint.
+- **`copy_main_cii.py`** still has no context-menu verb (see the Phase-0
+  entry above) — untouched by this round.
+- Real `.cii` sample files used to verify the rigid/bend logic (from
+  `acadri01/Conduit`'s `fixtures/real-samples/`) were **not** copied into
+  this repo — only the vendor PDF reference material was, per the explicit
+  instruction to exclude Conduit's `pipe-stress-engineering/` folder and
+  the general instruction to only copy the `reference/` folder. If AutoLift
+  ever wants its own fixture-backed automated tests for `neutral_patcher.py`
+  (flagged as valuable, not yet built — see TESTING.md's developer
+  reference section), sourcing/licensing a sample file for AutoLift's own
+  use would need a separate decision, not assumed here.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
 - RUN_PENDING → FORCES_READ completion detection: HANDOFF.md referenced an
   existing "C2Watchdog" `.c2db`-mtime-watch pattern that does not appear in

@@ -569,6 +569,20 @@ class LinePanel(ttk.Frame):
         self.app.focus_case(cid)              # tree + detail view in sync
         self._say("Case data updated (sidecar rewritten).")
 
+    def archive_case(self):
+        case = self.db.get_case(self.case_id)
+        if not messagebox.askyesno(
+                "Archive case",
+                f"Archive lift case {case['case_name']}?\n\n"
+                "It will be hidden from this line and excluded from exports. "
+                "You can restore it later from View archive.",
+                parent=self._top()):
+            return
+        self.db.archive_case(self.case_id)
+        self.app.reload_line(self.line_id)
+        self.show_overview()
+        self._say(f"Case {case['case_name']} archived.")
+
     def _render_case(self):
         self._clear()
         case = self.db.get_case(self.case_id)
@@ -576,8 +590,10 @@ class LinePanel(ttk.Frame):
         lifts = self.db.lifts_for(self.case_id)
         hdr = ttk.Frame(self.sheet); hdr.pack(fill="x", pady=(0, PAD), padx=(0, PAD))
         ttk.Label(hdr, text=case["case_name"], font=("Segoe UI", 12, "bold")).pack(side="left")
+        ttk.Button(hdr, text="Archive case",
+                   command=self.archive_case).pack(side="right")
         ttk.Button(hdr, text="Edit case data...",
-                   command=self.edit_case_data).pack(side="right")
+                   command=self.edit_case_data).pack(side="right", padx=(0, PAD))
         self._sec_image(case); self._sec_supports(sups); self._sec_lifts(case, lifts)
         self._sec_note(case, sups, lifts); self._sec_verdict(case); self._sec_sheet(case)
 

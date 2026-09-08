@@ -129,6 +129,11 @@ class LiftDb:
                 "ALTER TABLE work_orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
             self.cx.execute("ALTER TABLE work_orders ADD COLUMN archived_at TEXT")
 
+        if "archived" not in cols:
+            self.cx.execute(
+                "ALTER TABLE lift_cases ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            self.cx.execute("ALTER TABLE lift_cases ADD COLUMN archived_at TEXT")
+
     def close(self) -> None:
         self.cx.close()
 
@@ -307,10 +312,38 @@ class LiftDb:
         self.cx.commit()
 
     # -- cases ------------------------------------------------------------
-    def cases_for_line(self, line_id: int) -> List[sqlite3.Row]:
+    def cases_for_line(self, line_id: int,
+                       include_archived: bool = False) -> List[sqlite3.Row]:
+        """Cases of a line. Archived excluded unless asked (keeps them out of
+        the tree, the line overview, and exports) - mirrors lines_for_wo."""
+        if include_archived:
+            return self.cx.execute(
+                "SELECT * FROM lift_cases WHERE line_id=? ORDER BY seq, case_name",
+                (line_id,)).fetchall()
         return self.cx.execute(
-            "SELECT * FROM lift_cases WHERE line_id=? ORDER BY seq, case_name",
-            (line_id,)).fetchall()
+            "SELECT * FROM lift_cases WHERE line_id=? AND archived=0 "
+            "ORDER BY seq, case_name", (line_id,)).fetchall()
+
+    # -- archive (soft) ----------------------------------------------------
+    def archive_case(self, case_id: int) -> None:
+        self.cx.execute("UPDATE lift_cases SET archived=1, archived_at=? WHERE id=?",
+                        (_now(), case_id))
+        self.cx.commit()
+
+    def restore_case(self, case_id: int) -> None:
+        self.cx.execute("UPDATE lift_cases SET archived=0, archived_at=NULL WHERE id=?",
+                        (case_id,))
+        self.cx.commit()
+
+    def archived_cases(self) -> List[sqlite3.Row]:
+        """Archived cases with their line number and work-order number
+        (regardless of whether the line/WO itself is archived)."""
+        return self.cx.execute(
+            "SELECT c.*, l.line_no AS line_no, w.wo_no AS wo_no "
+            "FROM lift_cases c "
+            "JOIN lines l ON l.id = c.line_id "
+            "JOIN work_orders w ON w.id = l.wo_id "
+            "WHERE c.archived=1 ORDER BY w.wo_no, l.line_no, c.case_name").fetchall()
 
     def move_case(self, line_id: int, case_id: int, delta: int) -> bool:
         """
@@ -527,6 +560,22 @@ class LiftDb:
         if delete_files:
             self._prune_line_dirs(ln["line_no"])
         return {"lines": 1, "isos": isos, "cases": cases, "files": nfiles}
+
+    def purge_case(self, case_id: int, delete_files: bool = False) -> Dict[str, int]:
+        """Permanently delete a single lift case (its supports and lift
+        points cascade via ON DELETE CASCADE)."""
+        case = self.get_case(case_id)
+        if not case:
+            return {"cases": 0, "files": 0}
+        files: List[str] = []
+        if delete_files:
+            p = self.abs(case["screenshot"])
+            if p:
+                files.append(p)
+        self.cx.execute("DELETE FROM lift_cases WHERE id=?", (case_id,))
+        self.cx.commit()
+        nfiles = self._remove_files(files) if delete_files else 0
+        return {"cases": 1, "files": nfiles}
 
     def purge_wo(self, wo_id: int, delete_files: bool = False) -> Dict[str, int]:
         """Permanently delete a work order and every line/iso/case under it."""

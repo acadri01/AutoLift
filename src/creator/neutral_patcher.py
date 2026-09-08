@@ -6,6 +6,18 @@ Applies live-lift modifications to a parsed NeutralModel:
   1. For each lifted node, identifies the upstream and downstream elements.
      Only the OUTERMOST elements of the lifted group are split.
 
+     The immediate neighbour isn't always the one actually split: a rigid
+     element, a reducer, or an expansion joint can't carry an imposed
+     displacement, so the search walks further out (see
+     _walk_to_flexible_element) until it finds a plain pipe element,
+     preserving spacing_mm as a distance from the RESTRAINED node across
+     every hop skipped. If the chosen element's far node is a bend corner,
+     the bend's minimum required tangent length (T = R * tan(deflection/2),
+     deflection computed from the adjacent elements' own geometry, never
+     the #$ BEND record's angle fields) is kept clear too - see
+     reference/README.md for why. A SIF/tee pointer on the chosen element
+     is warned about, not skipped past.
+
   2. Splits each outer element at a point 'spacing_mm' from the lifted node,
      inserting a new displacement node. New node number = midpoint rule:
          new_node = from_node + round((to_node - from_node) / 2)
@@ -213,6 +225,211 @@ def _downstream_element(node: int, elements: List[Element]) -> Optional[Element]
 
 
 # ---------------------------------------------------------------------------
+# Element auxiliary flags: rigid / reducer / expansion joint / SIF / bend
+# ---------------------------------------------------------------------------
+# IEL pointer indices within the 17-value array _scan_element_blocks produces
+# (2 leading colour/visibility items + the 15 documented auxiliary pointers).
+# Confirmed against CAESAR II's own "CAESAR II Neutral File" Users Guide
+# chapter (reference/NeutralFile-v15.pdf, "#$ ELEMENTS" -> IEL array
+# description) - the same mapping _split_block's own TO_NODE_IDXS comment
+# already uses; named here for the skip/clearance logic below.
+BEND_PTR_IDX = 2
+RIGID_PTR_IDX = 3
+EXPJT_PTR_IDX = 4
+SIF_PTR_IDX = 12       # "Intersection Auxiliary field" in the vendor doc = SIF&TEES
+REDUCER_PTR_IDX = 14
+
+# #$ BEND: a fixed 3-line, 14-value record per bend (radius, weld type, three
+# (angle, node) tangent-point pairs, miter count, fitting thickness, seam-weld
+# flag, K factor, weld-strength-reduction factor, overlay thickness).
+# Confirmed against real #$ BEND bytes, not just the vendor doc's prose - see
+# reference/README.md. Only the radius (item 1) is used here: the "angle to
+# node position #N" fields are not reliably understood (the same value
+# repeats across bends of visibly different orientations in every real
+# sample checked), so the actual bend deflection angle used for clearance
+# below is computed from the adjacent elements' own geometry instead - see
+# _bend_deflection_deg.
+BEND_RECORD_LEN = 14
+
+
+def _read_bend_radii(lines: List[str]) -> Dict[int, float]:
+    """1-based #$ BEND record pointer -> bend radius (record item 1, mm)."""
+    start = find_section(lines, "#$ BEND")
+    if start is None:
+        return {}
+    end = find_next_section_start(lines, start)
+    vals: List[float] = []
+    for ln in lines[start + 1:end]:
+        if ln.strip():
+            vals.extend(float(t) for t in _SCI_RE.findall(ln))
+    radii: Dict[int, float] = {}
+    for i in range(len(vals) // BEND_RECORD_LEN):
+        radii[i + 1] = vals[i * BEND_RECORD_LEN]
+    return radii
+
+
+def _bend_corner_radii(
+    blocks: List["ElementBlock"], bend_radii: Dict[int, float]
+) -> Dict[int, float]:
+    """
+    node -> bend radius, for every real model node that is a bend corner.
+
+    The corner node is the ToNode of whichever element carries that bend's
+    pointer (IEL[BEND_PTR_IDX]) - NOT the #$ BEND record's own "node
+    position" fields, which are CAESAR's separate, synthetic near/far
+    tangent-point node numbers and never appear as a real element endpoint.
+    """
+    out: Dict[int, float] = {}
+    for b in blocks:
+        ptr = b.iel[BEND_PTR_IDX] if len(b.iel) > BEND_PTR_IDX else 0
+        if ptr > 0 and ptr in bend_radii:
+            out[b.n_to] = bend_radii[ptr]
+    return out
+
+
+def _bend_deflection_deg(
+    in_vec: Tuple[float, float, float], out_vec: Tuple[float, float, float]
+) -> float:
+    """
+    Deflection (turn) angle in degrees between two unit direction vectors:
+    the element arriving at a bend corner and the element leaving it.
+
+    0 deg = straight through, 90 deg = a right-angle elbow, 180 deg = a full
+    reversal. This is the dot product angle directly - NOT 180 minus it -
+    since a straight run has parallel vectors (dot=1, angle=0 -> no bend)
+    and a right-angle elbow has perpendicular vectors (dot=0, angle=90),
+    which already matches the elbow's own deflection angle.
+    """
+    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(in_vec, out_vec))))
+    return math.degrees(math.acos(dot))
+
+
+def _bend_tangent_length_mm(radius_mm: float, deflection_deg: float) -> float:
+    """Minimum required straight length on EACH side of a bend - standard
+    circular-elbow tangent geometry: T = R * tan(deflection / 2)."""
+    return radius_mm * math.tan(math.radians(deflection_deg) / 2.0)
+
+
+def _walk_to_flexible_element(
+    start_node: int,
+    side: str,                                    # "upstream" | "downstream"
+    node_spacing: float,
+    elements: List[Element],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
+    warnings: List[str],
+) -> Optional[Tuple[Element, float, int]]:
+    """
+    Walk outward from start_node (the support/lift node) in `side` direction
+    to find the element a displacement point can actually be placed on:
+
+      - a rigid element, a reducer, or an expansion joint can't carry an
+        imposed displacement, so each is skipped in favour of the next
+        element further out. node_spacing is preserved as a distance from
+        start_node across every hop (per its documented meaning: distance
+        from the RESTRAINED node), not reset at each one.
+      - a SIF/tee pointer on the chosen element is warned about, not
+        skipped past - it's still eligible for the split.
+      - if the chosen element's far node (the end away from start_node) is
+        a bend corner, the bend's minimum required tangent length is
+        computed from the adjacent elements' own geometry (see
+        _bend_deflection_deg - never from the #$ BEND record's angle
+        fields) and the local spacing is capped to leave that length clear.
+        If the bend would consume the element's ENTIRE length, it's skipped
+        just like a rigid element instead of being force-placed inside the
+        bend's tangent zone.
+
+    Returns (element, local_spacing_mm, far_node) - local_spacing_mm is
+    already capped for any bend clearance found, but NOT yet checked
+    against the element's own plain length (that "too short" case still
+    goes through the existing override-dialog path in _resolve_split, since
+    it's a genuine "which element did you mean" ambiguity, not a mechanical
+    clearance fix). Returns None if the chain runs out or loops.
+    """
+    node = start_node
+    remaining = node_spacing
+    seen: Set[Tuple[int, int]] = set()
+
+    while True:
+        e = (_upstream_element(node, elements) if side == "upstream"
+             else _downstream_element(node, elements))
+        if e is None:
+            return None
+        key = (e.n_from, e.n_to)
+        if key in seen:
+            return None                    # malformed/looping model - bail out
+        seen.add(key)
+
+        iel = iel_by_pair.get(key, [])
+
+        def _flag(idx: int) -> bool:
+            return len(iel) > idx and iel[idx] > 0
+
+        far_node = e.n_from if side == "upstream" else e.n_to
+
+        if _flag(RIGID_PTR_IDX) or _flag(REDUCER_PTR_IDX) or _flag(EXPJT_PTR_IDX):
+            kind = ("a rigid element" if _flag(RIGID_PTR_IDX) else
+                    "a reducer" if _flag(REDUCER_PTR_IDX) else "an expansion joint")
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} is {kind} — a displacement "
+                f"point can't be placed on it. Skipped toward the next "
+                f"plain pipe element.")
+            remaining -= _element_length(e)
+            node = far_node
+            continue
+
+        if _flag(SIF_PTR_IDX):
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has a SIF/tee pointer — "
+                f"verify this lift point placement is acceptable.")
+
+        radius = bend_radius_at.get(far_node)
+        if radius:
+            into_elem = _upstream_element(far_node, elements)
+            out_elem = _downstream_element(far_node, elements)
+            if into_elem is not None and out_elem is not None:
+                deflect = _bend_deflection_deg(
+                    _unit_vector(into_elem), _unit_vector(out_elem))
+                tangent = _bend_tangent_length_mm(radius, deflect)
+                L = _element_length(e)
+                usable = L - tangent
+                if usable <= 0:
+                    warnings.append(
+                        f"Element {e.n_from}→{e.n_to}: the bend at node "
+                        f"{far_node} (radius {radius:.0f} mm, {deflect:.1f}° "
+                        f"turn) needs {tangent:.0f} mm clearance, leaving no "
+                        f"usable length on this element at all — skipped "
+                        f"toward the next one.")
+                    remaining -= L
+                    node = far_node
+                    continue
+                if remaining > usable:
+                    warnings.append(
+                        f"Element {e.n_from}→{e.n_to}: the bend at node "
+                        f"{far_node} (radius {radius:.0f} mm, {deflect:.1f}° "
+                        f"turn) needs {tangent:.0f} mm clearance — spacing "
+                        f"reduced from {remaining:.0f} mm to {usable:.0f} mm "
+                        f"on this element.")
+                    remaining = usable
+
+        if remaining < 0:
+            # The elements skipped on the way out here (rigid/reducer/expjt,
+            # or a bend consuming a whole element) already used up more
+            # length than the requested spacing - the true target point
+            # falls inside ground that can't carry a displacement. Clamp to
+            # the start of this element (as close as physically possible)
+            # rather than feeding _split_block a negative spacing.
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to}: the requested spacing was "
+                f"entirely used up by skipped rigid/reducer/expansion-joint/"
+                f"bend elements before reaching here - placed at the start "
+                f"of this element instead.")
+            remaining = 0.0
+
+        return e, remaining, far_node
+
+
+# ---------------------------------------------------------------------------
 # Split specification
 # ---------------------------------------------------------------------------
 
@@ -226,6 +443,49 @@ class SplitSpec:
     _disp_ptr: int = 0      # assigned by patch_model before use
 
 
+def _resolve_split(
+    lifted: int,
+    side: str,
+    node_spacing: float,
+    elements: List[Element],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
+    existing_nodes: Set[int],
+    on_override: Optional[Callable],
+    warnings: List[str],
+) -> Optional[SplitSpec]:
+    found = _walk_to_flexible_element(
+        lifted, side, node_spacing, elements, iel_by_pair, bend_radius_at, warnings)
+    if found is None:
+        warnings.append(
+            f"Node {lifted}: no {side} plain pipe element found (ran out of "
+            f"elements, or every candidate was a rigid element / reducer / "
+            f"expansion joint / fully bend-consumed) — {side} split skipped.")
+        return None
+
+    elem, remaining, _far_node = found
+    L = _element_length(elem)
+    candidate = _midpoint_node(elem.n_from, elem.n_to)
+    direction = -1 if side == "upstream" else +1
+    new_node = _free_node(candidate, existing_nodes, direction)
+
+    if remaining > L:
+        problem = (
+            f"{side.capitalize()} element {elem.n_from}→{elem.n_to} is "
+            f"{L:.0f} mm — shorter than the required spacing "
+            f"{remaining:.0f} mm.")
+        up_disp = elem if side == "upstream" else _upstream_element(lifted, elements)
+        dn_disp = elem if side == "downstream" else _downstream_element(lifted, elements)
+        return _handle_short(
+            problem, lifted, up_disp, dn_disp,
+            new_node, remaining, side,
+            elements, existing_nodes, on_override, warnings,
+        )
+
+    existing_nodes.add(new_node)
+    return SplitSpec(elem, lifted, new_node, remaining, side)
+
+
 def _determine_splits(
     lifted_nodes: List[int],
     elements: List[Element],
@@ -233,6 +493,8 @@ def _determine_splits(
     existing_nodes: Set[int],
     on_override: Optional[Callable],
     warnings: List[str],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
 ) -> List[SplitSpec]:
     sorted_nodes = sorted(lifted_nodes)
     splits: List[SplitSpec] = []
@@ -246,59 +508,21 @@ def _determine_splits(
         do_upstream   = is_first
         do_downstream = is_last
 
-        up_elem = _upstream_element(lifted, elements)
-        dn_elem = _downstream_element(lifted, elements)
         node_spacing, _ = params_for(lifted)
 
         if do_upstream:
-            if up_elem is None:
-                warnings.append(
-                    f"Node {lifted}: no upstream element found — upstream split skipped.")
-            else:
-                L = _element_length(up_elem)
-                candidate = _midpoint_node(up_elem.n_from, up_elem.n_to)
-                new_node  = _free_node(candidate, existing_nodes, direction=-1)
-
-                if L < node_spacing:
-                    problem = (
-                        f"Upstream element {up_elem.n_from}→{up_elem.n_to} "
-                        f"is {L:.0f} mm — shorter than spacing {node_spacing:.0f} mm.")
-                    sp = _handle_short(
-                        problem, lifted, up_elem, dn_elem,
-                        new_node, node_spacing, "upstream",
-                        elements, existing_nodes, on_override, warnings,
-                    )
-                else:
-                    existing_nodes.add(new_node)
-                    sp = SplitSpec(up_elem, lifted, new_node, node_spacing, "upstream")
-
-                if sp:
-                    splits.append(sp)
+            sp = _resolve_split(
+                lifted, "upstream", node_spacing, elements, iel_by_pair,
+                bend_radius_at, existing_nodes, on_override, warnings)
+            if sp:
+                splits.append(sp)
 
         if do_downstream:
-            if dn_elem is None:
-                warnings.append(
-                    f"Node {lifted}: no downstream element found — downstream split skipped.")
-            else:
-                L = _element_length(dn_elem)
-                candidate = _midpoint_node(dn_elem.n_from, dn_elem.n_to)
-                new_node  = _free_node(candidate, existing_nodes, direction=+1)
-
-                if L < node_spacing:
-                    problem = (
-                        f"Downstream element {dn_elem.n_from}→{dn_elem.n_to} "
-                        f"is {L:.0f} mm — shorter than spacing {node_spacing:.0f} mm.")
-                    sp = _handle_short(
-                        problem, lifted, up_elem, dn_elem,
-                        new_node, node_spacing, "downstream",
-                        elements, existing_nodes, on_override, warnings,
-                    )
-                else:
-                    existing_nodes.add(new_node)
-                    sp = SplitSpec(dn_elem, lifted, new_node, node_spacing, "downstream")
-
-                if sp:
-                    splits.append(sp)
+            sp = _resolve_split(
+                lifted, "downstream", node_spacing, elements, iel_by_pair,
+                bend_radius_at, existing_nodes, on_override, warnings)
+            if sp:
+                splits.append(sp)
 
     return splits
 
@@ -818,6 +1042,19 @@ def patch_model(
         {e.n_to   for e in model.elements}
     )
 
+    # ── 0. Scan element blocks (fixed stride) — moved ahead of split
+    # determination so the rigid/reducer/expansion-joint/bend-aware element
+    # selection below can inspect each element's IEL pointers and any bend's
+    # radius before deciding what to split. ───────────────────────────────────
+    blocks = _scan_element_blocks(lines)
+    block_map: Dict[Tuple[int, int], ElementBlock] = {
+        (b.n_from, b.n_to): b for b in blocks
+    }
+    iel_by_pair: Dict[Tuple[int, int], List[int]] = {
+        (b.n_from, b.n_to): b.iel for b in blocks
+    }
+    bend_radius_at = _bend_corner_radii(blocks, _read_bend_radii(lines))
+
     # ── 1. Determine splits ──────────────────────────────────────────────────
     splits = _determine_splits(
         lifted_nodes=sorted(lifted_nodes),
@@ -826,17 +1063,13 @@ def patch_model(
         existing_nodes=set(existing_nodes),
         on_override=on_override,
         warnings=warnings,
+        iel_by_pair=iel_by_pair,
+        bend_radius_at=bend_radius_at,
     )
 
     if not splits:
         warnings.append("No element splits were determined — model unchanged.")
         return PatchResult(modified_lines=lines, warnings=warnings)
-
-    # ── 2. Scan element blocks (fixed stride) ────────────────────────────────
-    blocks = _scan_element_blocks(lines)
-    block_map: Dict[Tuple[int, int], ElementBlock] = {
-        (b.n_from, b.n_to): b for b in blocks
-    }
 
     # ── 3. Count existing displacement records before any changes ────────────
     existing_disp_count = _count_existing_displmnt_records(lines)
