@@ -184,3 +184,11 @@ running status log Claude appends to (skim this from mobile)
   paths — iecho-unavailable → False, folder-prompt-cancelled → True,
   full success (copy-only fallback) → True with the same message text as
   before.
+- 2026-09-09: Real-machine testing feedback: bare `pyinstaller
+  autolift.spec` (Step 3) doesn't reliably work — pip's console-script
+  `pyinstaller.exe` lands in a `Scripts` folder that isn't always on
+  `PATH` on Windows, so the command itself can go unrecognized even
+  though the package installed fine. `python -m PyInstaller autolift.spec`
+  works instead (asks the same Python you `pip install`'d into to run the
+  module directly, no PATH dependency). TESTING.md's Step 3 and "Test this
+  now" now lead with the `python -m PyInstaller` form.

@@ -94,9 +94,10 @@ and still need a real Windows + CAESAR II check:
    cancelling out of any prompt (folder, nodes, parameters) still closes
    cleanly with no error dialog or leftover process.
 
-Also still true from before: `pyinstaller autolift.spec` and the exe launch
-itself are worth re-confirming after pulling these changes, in case
-anything above broke the build.
+Also still true from before: `python -m PyInstaller autolift.spec` (see
+Step 3 — use this form, not bare `pyinstaller`) and the exe launch itself
+are worth re-confirming after pulling these changes, in case anything
+above broke the build.
 
 ---
 
@@ -176,8 +177,18 @@ this doc can pin down for you in advance).
 ## Step 3 — Build the exe
 
 ```
-pyinstaller autolift.spec
+python -m PyInstaller autolift.spec
 ```
+
+(Confirmed on a real Windows machine: the bare `pyinstaller autolift.spec`
+command can fail to run there — Windows doesn't always put the `Scripts`
+folder pip installs console scripts into on your `PATH`, so the
+`pyinstaller` command itself may not be found even though the package is
+installed. Running it as `python -m PyInstaller` instead always works,
+since it just asks the same Python you used for `pip install` to run the
+module directly — no `PATH` dependency. Use `python -m PyInstaller` from
+here on; if bare `pyinstaller` happens to work for you too, that's fine,
+but don't rely on it.)
 
 PyInstaller will analyze `src/launcher.py` and everything it (and the two
 bundled programs) import, then produce a single-file executable. This
