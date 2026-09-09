@@ -22,9 +22,16 @@ This document is two things:
 
 ## Test this now
 
+**First: update your local checkout.** Several rounds of changes have
+landed since you last pulled — see "Getting the latest changes" under
+Step 1 below for the exact commands
+(`git checkout claude/repo-mapping-modules-xomccd` then `git pull`), then
+rebuild (Step 3) before testing anything below. `git log -1 --oneline`
+should show `cdb570b` (or later) once you're up to date.
+
 Phase 0 packaging (one exe, self-installing context menus) is confirmed
-working on a real machine — thank you. Two things changed since then that
-still need a real Windows + CAESAR II check:
+working on a real machine — thank you. The items below changed since then
+and still need a real Windows + CAESAR II check:
 
 1. **Context menu is now a submenu — just re-fixed, needs re-verifying.**
    Right-click empty space in a folder — you should see one **"AutoLift"**
@@ -75,6 +82,17 @@ still need a real Windows + CAESAR II check:
    want to check the failure path, temporarily rename `iecho.exe` (or
    point `IECHO_PATH` somewhere invalid) and confirm you still get the
    same clear "iecho.exe not found" message before any dialogs open.
+
+4. **`lift_case_builder.run()` no longer calls `sys.exit()` directly
+   (Milestone 3 part 1, internal refactor, same behaviour).** It now
+   returns `True`/`False` and `create_lift_case.py` translates that into
+   the same process exit code as before. Every dialog and message you'd
+   normally see (cancel, "iecho not found", "Patching failed", "Lift
+   Creation Complete", etc.) is unchanged — this only changes how the
+   *process* ends internally. Nothing new to click through here; just
+   confirm "Full .C2 Lift Creation" still runs end to end and that
+   cancelling out of any prompt (folder, nodes, parameters) still closes
+   cleanly with no error dialog or leftover process.
 
 Also still true from before: `pyinstaller autolift.spec` and the exe launch
 itself are worth re-confirming after pulling these changes, in case
