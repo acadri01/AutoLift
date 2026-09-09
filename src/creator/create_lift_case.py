@@ -90,7 +90,12 @@ def main():
 
     initial = _resolve_initial_folder()
     from lift_case_builder import run
-    run(initial)
+    ok = run(initial)
+    # run() no longer calls sys.exit() itself (so it can be called in-process
+    # by a future host window without killing it) — this standalone entry
+    # point translates its True/False result into the same exit(0)/exit(1)
+    # this program has always used.
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

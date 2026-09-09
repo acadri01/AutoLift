@@ -163,3 +163,24 @@ running status log Claude appends to (skim this from mobile)
   `lift_case_builder.py`'s full import chain still resolves cleanly
   (tkinter/win32 stubbed) after the `find_iecho` → `probe_capabilities`
   swap.
+- 2026-09-09: Started Milestone 3's lower-risk half — converted
+  `lift_case_builder.run()`'s every `sys.exit(0)`/`sys.exit(1)` call into
+  `return True`/`return False` (True = completed or cleanly cancelled by
+  the user, False = stopped on an error — both cases already show their
+  own dialog, so the caller doesn't need the message repeated). `run()` no
+  longer kills the host process, which is what makes it safe to call
+  in-process later (Milestone 4). `create_lift_case.py`'s `main()` now
+  translates that return value into `sys.exit(0 if ok else 1)` — preserves
+  today's exact process-exit-code behaviour for the standalone exe/context
+  menu invocation, just moved to the one place that still needs to exit
+  the process. Removed the now-unused `import sys` from
+  `lift_case_builder.py`. Deliberately did NOT touch `ui_dialogs.py`'s
+  `tk.Tk()` → `tk.Toplevel(parent)` conversion in this pass — that's a
+  6-class, 844-line GUI refactor I can't visually verify from this Linux
+  session, and doing it without being able to see the actual dialogs run
+  is a real regression risk; leaving it as the next Milestone-3 step
+  rather than rushing a change I can't check. Verified: `py_compile`
+  clean; headless checks (dialogs stubbed) of all three return-value
+  paths — iecho-unavailable → False, folder-prompt-cancelled → True,
+  full success (copy-only fallback) → True with the same message text as
+  before.

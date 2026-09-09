@@ -133,6 +133,20 @@ where Claude parks non-blocking questions + logs assumptions
   `lift_case_builder.py`'s startup gate, which needed the richer
   `CapabilityReport` instead of a bare exception.
 
+## Assumptions made — Milestone 3, run() return-value contract (2026-09-09)
+- **`run()`'s new return contract is just `bool`** (True = done or cleanly
+  cancelled, False = stopped on error) rather than something richer (an
+  enum, a result object with the created file paths, etc.). Every path
+  already communicates the actual outcome to the user via `show_message`
+  before returning, and there's no current caller (Milestone 4's
+  single-window integration hasn't been built yet) that needs more detail
+  than "did it finish". Reversible/low-risk — richer if a real caller
+  needs it once Milestone 4 starts.
+- **Cancelling out of the "nodes have no restraint, proceed anyway?"
+  warning now returns True (not False)** — matches the original
+  `sys.exit(0)` it replaced (the engineer chose not to proceed; that's a
+  clean stop, not an error), consistent with every other cancel path.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
 - **CAESAR input-GUI exe / CAESAR data root resolution** (see the
   Milestone 2 assumption above) — SPEC.md's milestone 2 wording names
