@@ -350,3 +350,28 @@ running status log Claude appends to (skim this from mobile)
   the OLD code would have placed a displacement directly on those bend
   corners on a real file, and the fix now correctly clamps 381mm clear of
   each instead. File still re-parses cleanly, NUMELT matches.
+- 2026-09-09: User answered the IZUP mechanism question, then approved
+  the "Stop-and-ask" displacement-axis fix ("You may implement this izup
+  to determine whether a vertical section is determined by a y or z
+  section"). Implemented: `_displ_dof_index(izup)` picks DY's slot (index
+  13) for IZUP=0 or DZ's slot (index 14) for IZUP=1 in the 54-value
+  VECTOR-major DOF array; `_build_displmnt_record()` now takes an `izup`
+  parameter (default 0, so any other caller is unaffected) instead of
+  unconditionally writing `DISP_DOF_INDEX`; `patch_model` passes the same
+  `izup` it already reads once per file for the element-skip logic.
+  Also fixed a stale/contradictory docstring in `_build_displmnt_record`
+  that described a "DOF-major" layout while the actual code (and its own
+  inline comment) used VECTOR-major - noticed while adding the IZUP
+  branch, harmless (docs-only) but confusing to leave next to new code.
+  Marked QUESTIONS.md's "Stop-and-ask" entry resolved rather than
+  deleting it, so the reasoning trail for why this was ever a stop-and-ask
+  item (not something to have silently changed) stays visible.
+  Verified: `py_compile` clean; 5 new pure-function checks in the scratch
+  suite (`_displ_dof_index` for both IZUP values, `_build_displmnt_record`
+  re-parsed back into its 54-value array to confirm exactly one non-FREE
+  DOF at the expected index for each IZUP value, and that omitting `izup`
+  still defaults to DY) - 25/25 checks passing; a real round trip against
+  `44002.cii` (IZUP=1) - re-parsed the PATCHED file's own `#$ DISPLMNT`
+  bytes directly (not just the function's return value) and confirmed the
+  10mm displacement value lands at DOF index 14 (DZ of vector 3), with
+  index 13 (DY) still FREE.

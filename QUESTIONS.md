@@ -175,7 +175,21 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
-## Stop-and-ask (blocking - real engineering-correctness question, 2026-09-09)
+## Stop-and-ask (resolved 2026-09-09 - user confirmed, fix implemented)
+- **RESOLVED**: user replied "You may implement this izup to determine
+  whether a vertical section is determined by a y or z section" - read as
+  approval to apply the same IZUP-based axis selection to the displacement
+  DOF, not just the element-skip check. Implemented: `_displ_dof_index(izup)`
+  (DY index 13 for IZUP=0, DZ index 14 for IZUP=1),
+  `_build_displmnt_record()` takes an `izup` parameter (default 0,
+  backward compatible), `patch_model` passes the same `izup` it already
+  computes for the element-skip logic. Verified: 5 new pure-function
+  checks (both axes, default-arg backward compat) plus a real round-trip
+  against `44002.cii` (IZUP=1) confirming the written DISPLMNT record's
+  10mm value lands at DOF index 14 (DZ of vector 3), not 13 (DY) -
+  by directly re-parsing the patched file's own bytes, not just trusting
+  the function's return value. Original question preserved below for the
+  record.
 - **Is displacement always applied along the wrong axis for a Z-vertical
   (IZUP=1) file?** While adding the vertical-component element-skip rule
   (see above), found that `neutral_patcher.py`'s displacement application

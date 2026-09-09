@@ -86,9 +86,20 @@ from ui_dialogs import NodeLiftParams
 
 FREE = 9999.99
 # Spec layout is VECTOR-major: [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,..., DX9,...,RZ9]
-# DY of vector N is at 0-based index (N-1)*6 + 1
-# We apply displacement in Y (DY) of vector 3: index (3-1)*6 + 1 = 13
-DISP_DOF_INDEX = 13         # 0-based index in the 54-value array for DY of vector 3
+# DY of vector N is at 0-based index (N-1)*6 + 1; DZ of vector N is (N-1)*6 + 2.
+# The "lift" displacement is applied in vector 3, along whichever axis this
+# file's own IZUP flag (#$ CONTROL - see _read_izup) marks as vertical: DY
+# for IZUP=0, DZ for IZUP=1. Getting this wrong applies the displacement
+# sideways instead of vertically on a Z-vertical file - see
+# _displ_dof_index and QUESTIONS.md's now-resolved "Stop-and-ask" entry.
+DISP_DOF_INDEX_Y = 13       # 0-based index in the 54-value array for DY of vector 3
+DISP_DOF_INDEX_Z = 14       # 0-based index in the 54-value array for DZ of vector 3
+
+
+def _displ_dof_index(izup: int) -> int:
+    """Which 0-based slot in the 54-value DOF array carries the lift
+    displacement, for this file's own vertical axis (see _read_izup)."""
+    return DISP_DOF_INDEX_Z if izup == 1 else DISP_DOF_INDEX_Y
 BLOCK_LINES = 15            # every element block is exactly 15 lines
 REAL_LINES = 9              # lines 0-8: real data
 STRING_LINES = 2            # lines 9-10: name + line number
@@ -977,6 +988,7 @@ def _build_displmnt_record(
     node: int,
     displacement_mm: float,
     version: str,
+    izup: int = 0,
 ) -> List[str]:
     """
     20 lines per displacement auxiliary block (2 slots x 10 lines each).
@@ -985,13 +997,14 @@ def _build_displmnt_record(
       Line 1    : node number on its own line  "  " + G13.6
       Lines 2-10: 54 DOF values in 9 lines of 6
 
-    DOF-major storage order (matches Caesar display):
-      values  1-9:  DX for vectors 1-9
-      values 10-18: DY for vectors 1-9  <- DY vec3 = value 12
-      values 19-27: DZ for vectors 1-9
-      values 28-36: RX for vectors 1-9
-      values 37-45: RY for vectors 1-9
-      values 46-54: RZ for vectors 1-9
+    VECTOR-major storage order:
+      [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,DZ2,RX2,RY2,RZ2, ..., DX9,...,RZ9]
+      one line of 6 values per vector - see _dof_lines below.
+
+    The lift displacement is applied in vector 3, along whichever axis this
+    file's own IZUP flag marks as vertical (see _displ_dof_index) - DY for
+    IZUP=0, DZ for IZUP=1. Applying it to DY unconditionally would push the
+    pipe sideways instead of lifting it on a Z-vertical file.
 
     Slot 2: node = 0, all FREE.
     """
@@ -1015,14 +1028,15 @@ def _build_displmnt_record(
     def _vec_line(vals: List[float]) -> str:
         return "  " + "".join(_fmt_val(v) for v in vals) + "\n"
 
+    dof_index = _displ_dof_index(izup)
+
     def _dof_lines(apply_disp: bool) -> List[str]:
         # Spec layout is VECTOR-major:
         # [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,DZ2,RX2,RY2,RZ2, ..., DX9,...,RZ9]
         # Written as 9 lines of 6 values (one line per vector).
-        # DY of vector 3 = 0-based index (3-1)*6 + 1 = 13 = DISP_DOF_INDEX
         vals54: List[float] = [F] * 54
         if apply_disp:
-            vals54[DISP_DOF_INDEX] = D
+            vals54[dof_index] = D
 
         out = []
         for i in range(0, 54, 6):
@@ -1329,7 +1343,7 @@ def patch_model(
         new_disp_nodes.append(sp.new_node)
         _, sp_disp_mm = _params_for(sp.lifted_node)
         disp_records.append(
-            _build_displmnt_record(sp.new_node, sp_disp_mm, model.version)
+            _build_displmnt_record(sp.new_node, sp_disp_mm, model.version, izup)
         )
         lift_points.append(LiftPointInfo(
             lift_node=sp.new_node,

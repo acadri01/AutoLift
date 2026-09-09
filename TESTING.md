@@ -100,14 +100,16 @@ you're on the latest commit.
    element is skipped and the bend near the final placement is no longer
    broken, open the result in CAESAR II, and report back.
 
-   **Separately raised, not yet fixed — see QUESTIONS.md "Stop-and-ask"**:
-   while adding the vertical-skip check, found that the applied lift
-   displacement itself is hardcoded to global DY regardless of which axis
-   the file marks as vertical, which could mean it's being applied along
-   the wrong axis for a Z-vertical file. This is pre-existing behaviour
-   (not something this PR changed) and affects actual physical output, so
-   it needs your confirmation before anything is touched — see the PR for
-   the full explanation.
+   **Also fixed, with your go-ahead**: the applied lift displacement
+   itself was hardcoded to global DY regardless of which axis the file
+   marks as vertical — on a Z-vertical file (like `44002.cii`) this meant
+   the "lift" was being applied sideways, not up. It now applies to DZ on
+   a Z-vertical file and DY on a Y-vertical file, matching whatever the
+   file's own IZUP flag says. **This is the one most worth double-checking
+   in CAESAR II itself**: open a patched Z-vertical job and confirm the
+   applied displacement now shows up in the DZ direction (not DX/DY) at
+   the new node, and that the resulting deflected shape actually looks
+   like a lift (moves the pipe up) rather than a sideways push.
 
 Lower priority, internal refactors that should be behaviour-preserving
 (worth a quick sanity pass, not a dedicated test session): the grouped
