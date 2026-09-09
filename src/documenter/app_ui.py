@@ -63,8 +63,10 @@ def _is_archive_line(row) -> bool:
 
 class DocumenterApp(tk.Tk):
     """
-    focus: ("wo", wo_id)  or  ("line", wo_id, line_id)
-    Decides what the tree starts with and which panel opens first.
+    focus: ("wo", wo_id)  or  ("line", wo_id, line_id)  or  ("root",)
+    Decides what the tree starts with and which panel opens first. ("root",)
+    is for when the launching folder wasn't recognisable as either a line or
+    a work order - opens at the tree root, no DB record created for it.
     """
 
     def __init__(self, db: LiftDb, focus):
@@ -82,9 +84,11 @@ class DocumenterApp(tk.Tk):
         if focus[0] == "line":
             _, wo_id, line_id = focus
             self._seed_line_route(wo_id, line_id)
-        else:
+        elif focus[0] == "wo":
             _, wo_id = focus
             self._seed_wo(wo_id)
+        else:
+            self._seed_root()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(60, self._raise)
@@ -317,6 +321,15 @@ class DocumenterApp(tk.Tk):
         self._populate(iid)                 # immediate children (lines) only
         self.nav.item(iid, open=True)
         self.nav.selection_set(iid)         # -> triggers WoPanel
+
+    def _seed_root(self):
+        """No specific line/WO was recognised at launch - show the tree root
+        (every real work order already in the database) so the user can
+        navigate to one themselves. Creates no DB record."""
+        self._populate(ROOT_IID)
+        self.nav.item(ROOT_IID, open=True)
+        self.nav.selection_set(ROOT_IID)
+        self._show_blank("Select a work order.")
 
     def _seed_line_route(self, wo_id: int, line_id: int):
         """Route to the top ONLY: root -> this WO -> this line."""

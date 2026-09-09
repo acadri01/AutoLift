@@ -22,82 +22,67 @@ This document is two things:
 
 ## Test this now
 
-**First: update your local checkout.** Several rounds of changes have
-landed since you last pulled — see "Getting the latest changes" under
-Step 1 below for the exact commands
-(`git checkout claude/repo-mapping-modules-xomccd` then `git pull`), then
-rebuild (Step 3) before testing anything below. `git log -1 --oneline`
-should show `cdb570b` (or later) once you're up to date.
+**First: update your local checkout.** See "Getting the latest changes"
+under Step 1 below (`git checkout claude/repo-mapping-modules-xomccd` then
+`git pull`), then rebuild with `python -m PyInstaller autolift.spec` (Step
+3 — that exact form, not bare `pyinstaller`, which doesn't reliably work
+on Windows). Compare `git log -1 --oneline` against what's shown at the
+top of [PR #2](https://github.com/acadri01/AutoLift/pull/2) to confirm
+you're on the latest commit.
 
-Phase 0 packaging (one exe, self-installing context menus) is confirmed
-working on a real machine — thank you. The items below changed since then
-and still need a real Windows + CAESAR II check:
+1. **Three Documenter fixes from your report — please re-check all three:**
+   - **Case order was alphabetical, not numeric by node** ("node 1000
+     before node 200"). Fixed: the tree/preview/export now sort by node
+     number (a "natural sort" — digit runs compare as numbers, not
+     characters) whenever you haven't manually reordered a line's cases.
+     Open a line with several lift cases whose node numbers aren't all the
+     same digit-length and confirm they now read low to high.
+   - **Reordering is now drag-and-drop**, not just Move up/down (both
+     still work). In a line's overview, grab a row in the "Isometrics" or
+     "Lift cases" list and drag it to a new position — it should move
+     live as you drag, and the tree + preview should update once you
+     release. Please test dragging both up and down, and across more than
+     one position in a single drag.
+   - **The Documenter no longer creates a phantom "work order"** for a
+     folder that isn't actually one (this is what made "AutoLift" and
+     "Lifting_Calcs" show up in your Work orders tree — see your
+     screenshot). Right-clicking a folder that isn't a line or a work
+     order now opens the Documenter at the tree root ("Select a work
+     order.") instead of inventing an entry for that folder. **Your
+     existing database still has the two old phantom entries** — this fix
+     only stops new ones; remove "AutoLift" and "Lifting_Calcs" yourself
+     via **Advanced → Database admin...** (select each, delete) whenever
+     convenient. Also worth confirming: right-clicking your `AutoLift`
+     install folder or the `Lifting_Calcs` container folder no longer adds
+     anything new to the tree.
 
-1. **Context menu is now a submenu — just re-fixed, needs re-verifying.**
-   Right-click empty space in a folder — you should see one **"AutoLift"**
-   entry that expands to "Full .C2 Lift Creation" and "Open Lift Mark-up
-   Documenter". This was reported broken (parent showed, no children) and
-   is now fixed (a `(Default)` value on the parent key was blocking the
-   submenu — see PROGRESS.md for the root cause). **Pull the latest change
-   first** (see "Getting the latest changes" in Step 1 below), rebuild, run
-   once, and confirm both items now appear in the submenu.
+2. **New engineering logic in the Creator.** `neutral_patcher.py` walks
+   past a rigid element, reducer, or expansion joint next to a lift/support
+   node (instead of splitting it, which CAESAR can't accept a displacement
+   on) to find the next plain pipe element. If the requested spacing
+   doesn't fit what's actually usable on a candidate element — because the
+   element itself is too short, a bend eats into it, or both — the walk
+   keeps going outward, repeating until it finds an element that can hold
+   the FULL requested spacing, never silently settling for less on a
+   nearby insufficient element. Only if the whole pipe run is exhausted
+   does it fall back to the override dialog. Checked so far against real
+   `.cii` files (structural validity, sane numbers) and pure-function
+   geometry unit checks — **still unverified**: whether a patched `.CII`
+   actually converts through `iecho.exe` and opens correctly in CAESAR II,
+   and whether the placement itself looks right to an engineer. If you
+   have a job with a lift point near a rigid support, a bend, or a short
+   element, please run "Full .C2 Lift Creation" on it, watch for the
+   warning messages (they name exactly which elements were skipped and
+   why), open the result in CAESAR II, and report back.
 
-2. **New engineering logic in the Creator — this is the important one.**
-   `neutral_patcher.py` now walks past a rigid element, reducer, or
-   expansion joint next to a lift/support node (instead of splitting it,
-   which CAESAR can't accept a displacement on) to find the next plain pipe
-   element. If the requested spacing doesn't fit what's actually usable on
-   a candidate element — because the element itself is too short, a bend
-   eats into it, or both — the walk keeps going outward, repeating until it
-   finds an element that can hold the FULL requested spacing (per direct
-   instruction: it never silently settles for less on a nearby
-   insufficient element when a further one could satisfy the request).
-   Only if the whole pipe run is exhausted without finding a fit does it
-   fall back to the override dialog. This has been checked two ways so
-   far, neither of which is a substitute for the real thing:
-   - Against real `.cii` files (not shipped in this repo) to confirm the
-     rigid/bend detection reads the right pointers and produces
-     structurally valid, re-parseable output with sane numbers.
-   - Pure-function unit checks of the angle/tangent-length geometry math.
-
-   **What's still unverified**: whether a `.CII` patched this way actually
-   converts cleanly through `iecho.exe` and opens correctly in CAESAR II,
-   and whether the resulting lift-point placement matches what an engineer
-   would actually want to see for a real rigid-element, bend, or
-   too-short-element scenario — especially the walk-further-out behaviour
-   above, since it can now land the lift point noticeably farther from the
-   support node than earlier versions did. If you have a job with a lift
-   point near a rigid support, a bend, or a short element, please run
-   "Full .C2 Lift Creation" on it, watch for the new warning messages (they
-   name exactly which elements were skipped and why), open the result in
-   CAESAR II, and report back whether the placement looks right.
-
-3. **`tool_discovery.py` (Milestone 2, internal refactor, same behaviour).**
-   `iecho.exe` path resolution moved into a new shared module; the
-   "iecho not found" startup check now goes through it. This should be
-   invisible — same messages, same behaviour — but since it touches how
-   the Creator verifies CAESAR tooling before doing anything, it's worth a
-   quick sanity check: run "Full .C2 Lift Creation" once with CAESAR II
-   installed normally (should proceed exactly as before), and if you ever
-   want to check the failure path, temporarily rename `iecho.exe` (or
-   point `IECHO_PATH` somewhere invalid) and confirm you still get the
-   same clear "iecho.exe not found" message before any dialogs open.
-
-4. **`lift_case_builder.run()` no longer calls `sys.exit()` directly
-   (Milestone 3 part 1, internal refactor, same behaviour).** It now
-   returns `True`/`False` and `create_lift_case.py` translates that into
-   the same process exit code as before. Every dialog and message you'd
-   normally see (cancel, "iecho not found", "Patching failed", "Lift
-   Creation Complete", etc.) is unchanged — this only changes how the
-   *process* ends internally. Nothing new to click through here; just
-   confirm "Full .C2 Lift Creation" still runs end to end and that
-   cancelling out of any prompt (folder, nodes, parameters) still closes
-   cleanly with no error dialog or leftover process.
-
-Also still true from before: `python -m PyInstaller autolift.spec` (see
-Step 3 — use this form, not bare `pyinstaller`) and the exe launch itself
-are worth re-confirming after pulling these changes, in case anything
-above broke the build.
+Lower priority, internal refactors that should be behaviour-preserving
+(worth a quick sanity pass, not a dedicated test session): the grouped
+"AutoLift" context-menu submenu (previously confirmed working, re-check
+after pulling if you see anything odd), `tool_discovery.py`'s iecho.exe
+path resolution, and `lift_case_builder.run()` returning a value instead
+of calling `sys.exit()` directly. None of these should change what you
+see or click through — if they do, that's a real regression worth
+reporting.
 
 ---
 

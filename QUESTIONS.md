@@ -147,7 +147,39 @@ where Claude parks non-blocking questions + logs assumptions
   `sys.exit(0)` it replaced (the engineer chose not to proceed; that's a
   clean stop, not an error), consistent with every other cancel path.
 
+## Assumptions made — Documenter bug reports (2026-09-09)
+- **Natural-sort fix scoped to `cases_for_line` only.** `lines_for_wo` and
+  `wos()` sort plain-alphabetically the same way `cases_for_line` used to,
+  so the identical "N1000 before N200"-style bug could theoretically apply
+  to line numbers or WO numbers too. Not reported, and (unlike cases)
+  neither has a manual-reorder UI (`move_line`/`move_wo` don't exist) to
+  interact with, so left untouched to keep this fix scoped to what was
+  actually reported. Moved to "Open, non-blocking" below - fix the same
+  way (`_natural_key` already exists and is reusable) if it's ever
+  reported as an issue.
+- **Drag-and-drop keeps the Move up/down buttons rather than replacing
+  them.** The user asked to prefer dragging over the buttons, not
+  necessarily to remove the buttons - keeping both is strictly additive
+  and costs nothing, and some users/situations (precise single-step move,
+  no mouse) may still prefer them.
+- **The phantom-work-order fix does not touch the user's existing live
+  database.** The two bad "AutoLift"/"Lifting_Calcs" entries it already
+  created are still there - only the Database admin panel (already built,
+  Advanced menu) can remove them, from the user's own machine. Flagged in
+  TESTING.md rather than attempting anything from this session (no access
+  to that database).
+- **`DocumenterApp`'s new `("root",)` focus mode reuses the existing
+  `_show_blank("Select a work order.")` path** (same one already used when
+  a Refresh loses the previous selection) rather than adding new UI/copy
+  for "nothing was recognised at launch" - one less state for a user to
+  learn, and it was already the right message for "you're at the root,
+  pick something."
+
 ## Open, non-blocking (need input before the relevant build step, not now)
+- **Natural-sort for `lines_for_wo`/`wos()`** (see the assumption above) -
+  not reported, no manual-reorder UI exists for either yet, so left as
+  plain alphabetical. Revisit if line/WO numbering ever produces the same
+  kind of confusing order a user would notice.
 - **CAESAR input-GUI exe / CAESAR data root resolution** (see the
   Milestone 2 assumption above) — SPEC.md's milestone 2 wording names
   these, but no current feature drives either, so `tool_discovery.py` only

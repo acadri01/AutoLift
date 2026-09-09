@@ -21,10 +21,24 @@ touched.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+_DIGITS = re.compile(r"(\d+)")
+
+
+def _natural_key(s: str):
+    """
+    Sort key that compares embedded digit runs as numbers, not characters,
+    so "N200" sorts before "N1000" (plain string/SQL ORDER BY puts "N1000"
+    first, since '1' < '2'). Case names share a common line prefix
+    (e.g. "46-P-1234_N..."), so the first digit run that actually differs
+    between two cases on the same line is the node number itself.
+    """
+    return [int(t) if t.isdigit() else t.lower() for t in _DIGITS.split(s)]
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -295,6 +309,27 @@ class LiftDb:
         self.cx.commit()
         return True
 
+    def reorder_isos(self, line_id: int, ordered_iso_ids: List[int]) -> bool:
+        """
+        Set line_isos.seq to match ordered_iso_ids's positions exactly, in
+        one transaction - for drag-and-drop reordering (as opposed to
+        move_iso's single-step swap). ordered_iso_ids must be exactly the
+        line's current (non-archived - isos have no archive state) iso ids,
+        in the new order; returns False without writing anything if it
+        isn't (e.g. a stale list from a background change), True otherwise.
+        """
+        current = {r["id"] for r in self.isos_for_line(line_id)}
+        if set(ordered_iso_ids) != current:
+            return False
+        for i, iid in enumerate(ordered_iso_ids):
+            self.cx.execute("UPDATE line_isos SET seq=? WHERE id=?", (i, iid))
+        self.cx.execute(
+            f"UPDATE line_isos SET updated=? WHERE id IN "
+            f"({','.join('?' * len(ordered_iso_ids))})",
+            (_now(), *ordered_iso_ids))
+        self.cx.commit()
+        return True
+
     def get_iso(self, iso_id: int) -> Optional[sqlite3.Row]:
         return self.cx.execute("SELECT * FROM line_isos WHERE id=?", (iso_id,)).fetchone()
 
@@ -315,14 +350,22 @@ class LiftDb:
     def cases_for_line(self, line_id: int,
                        include_archived: bool = False) -> List[sqlite3.Row]:
         """Cases of a line. Archived excluded unless asked (keeps them out of
-        the tree, the line overview, and exports) - mirrors lines_for_wo."""
+        the tree, the line overview, and exports) - mirrors lines_for_wo.
+
+        Ordered by seq first (explicit manual order, once move_case has been
+        used), then by a natural-sort key of case_name as the tiebreak for
+        untouched (seq=0) rows - a plain SQL/string ORDER BY on case_name
+        sorts "N1000" before "N200" (lexicographic), which reads as
+        nonsense when case names embed node numbers. See _natural_key.
+        """
         if include_archived:
-            return self.cx.execute(
-                "SELECT * FROM lift_cases WHERE line_id=? ORDER BY seq, case_name",
+            rows = self.cx.execute(
+                "SELECT * FROM lift_cases WHERE line_id=?", (line_id,)).fetchall()
+        else:
+            rows = self.cx.execute(
+                "SELECT * FROM lift_cases WHERE line_id=? AND archived=0",
                 (line_id,)).fetchall()
-        return self.cx.execute(
-            "SELECT * FROM lift_cases WHERE line_id=? AND archived=0 "
-            "ORDER BY seq, case_name", (line_id,)).fetchall()
+        return sorted(rows, key=lambda r: (r["seq"], _natural_key(r["case_name"])))
 
     # -- archive (soft) ----------------------------------------------------
     def archive_case(self, case_id: int) -> None:
@@ -369,6 +412,27 @@ class LiftDb:
         self.cx.execute("UPDATE lift_cases SET seq=? WHERE id=?", (idx, b))
         self.cx.execute("UPDATE lift_cases SET updated=? WHERE id IN (?,?)",
                         (_now(), a, b))
+        self.cx.commit()
+        return True
+
+    def reorder_cases(self, line_id: int, ordered_case_ids: List[int]) -> bool:
+        """
+        Set lift_cases.seq to match ordered_case_ids's positions exactly, in
+        one transaction - for drag-and-drop reordering (as opposed to
+        move_case's single-step swap). ordered_case_ids must be exactly the
+        line's current non-archived case ids, in the new order; returns
+        False without writing anything if it isn't (e.g. a stale list from
+        a background change), True otherwise.
+        """
+        current = {r["id"] for r in self.cases_for_line(line_id)}
+        if set(ordered_case_ids) != current:
+            return False
+        for i, cid in enumerate(ordered_case_ids):
+            self.cx.execute("UPDATE lift_cases SET seq=? WHERE id=?", (i, cid))
+        self.cx.execute(
+            f"UPDATE lift_cases SET updated=? WHERE id IN "
+            f"({','.join('?' * len(ordered_case_ids))})",
+            (_now(), *ordered_case_ids))
         self.cx.commit()
         return True
 

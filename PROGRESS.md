@@ -192,3 +192,54 @@ running status log Claude appends to (skim this from mobile)
   works instead (asks the same Python you `pip install`'d into to run the
   module directly, no PATH dependency). TESTING.md's Step 3 and "Test this
   now" now lead with the `python -m PyInstaller` form.
+- 2026-09-09: Three real-machine bug reports from the Documenter, fixed:
+  1. **Case order was alphabetical, not numeric.** `lift_db.py`'s
+     `cases_for_line` sorted `ORDER BY seq, case_name` - fine once
+     `move_case` has been used (seq drives it), but the case_name tiebreak
+     for untouched (seq=0) rows was a plain string sort, so "N1000" sorted
+     before "N200" ('1' < '2' as characters). Added `_natural_key()` (splits
+     on digit runs, compares them as ints) and re-sort in Python instead of
+     relying on SQL's `ORDER BY ... case_name`; `move_case`'s existing
+     manual-reorder behaviour is untouched (still takes priority once used).
+     Scoped to `cases_for_line` only - `lines_for_wo`/`wos()` use the same
+     plain alphabetical pattern and could have the identical latent bug,
+     but weren't reported and have no seq-based manual-reorder UI to
+     interact with, so left as-is; flagged in QUESTIONS.md.
+  2. **Reordering via Move up/down was "click, wait for a full panel
+     rebuild, click again" for a multi-step move** - user asked for
+     drag-and-drop instead. Added `_bind_drag_reorder()` in `line_ui.py`
+     (click-drag-release on the existing case/iso Listboxes - live reorder
+     during drag with no DB write or rebuild, single persist + refresh on
+     release) plus new `lift_db.py` methods `reorder_cases`/`reorder_isos`
+     (set every row's seq to match a full given order in one transaction,
+     refusing - no partial write - if the id set doesn't match the line's
+     current cases/isos exactly). Move up/down buttons kept alongside drag,
+     not removed.
+  3. **Phantom "work order" created for non-job folders** - right-clicking
+     the `AutoLift` install folder itself, or a container folder that just
+     holds several real work orders (`Lifting_Calcs` in the report), showed
+     up as bogus entries in the Work orders tree (screenshot confirmed both
+     "AutoLift" and "Lifting_Calcs" listed alongside real WOs). Root cause:
+     `lift_documenter.main()`'s fallback for `LL.classify(folder) ==
+     "unknown"` called `db.get_or_create_wo(basename(folder), folder)` -
+     writing a DB record for literally any folder that wasn't a recognised
+     line or work order. Fixed by adding a `("root",)` focus mode to
+     `DocumenterApp` (opens at the tree root, "Select a work order.", via
+     the existing `_show_blank` path already used elsewhere - no new UI)
+     and routing the "unknown" case there instead of creating a WO record.
+     Confirmed via a synthetic folder tree that `LL.classify()` really does
+     return "unknown" for both folder shapes from the report, and that real
+     line/WO folders still classify correctly. **Does not retroactively
+     clean up the two existing phantom entries in the user's live
+     database** - those need deleting via the existing Database admin panel
+     (Advanced menu); can't be done from this session. Flagged in
+     TESTING.md's "Test this now".
+  Verified: `py_compile` clean on all five touched files (`lift_db.py`,
+  `line_ui.py`, `app_ui.py`, `lift_documenter.py`, plus re-checking
+  `line_layout.py` unchanged); headless SQLite tests of natural-sort
+  ordering, `reorder_cases`/`reorder_isos` (including the refuse-on-
+  mismatch path), and `LL.classify()` against a synthetic
+  `Lifting_Calcs/{AutoLift,WO.../line/00_CII}` tree; a standalone
+  reimplementation of the drag-motion index bookkeeping against a fake
+  Listbox stub (both drag-down and drag-up), since real Tkinter isn't
+  available in this Linux session to exercise the actual bound handlers.
