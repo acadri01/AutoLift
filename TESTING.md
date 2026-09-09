@@ -39,10 +39,15 @@ still need a real Windows + CAESAR II check:
    `neutral_patcher.py` now walks past a rigid element, reducer, or
    expansion joint next to a lift/support node (instead of splitting it,
    which CAESAR can't accept a displacement on) to find the next plain pipe
-   element, and — if that element's far end is a bend — shrinks the
-   placement spacing to leave the bend's required tangent length clear.
-   This has been checked two ways so far, neither of which is a substitute
-   for the real thing:
+   element. If the requested spacing doesn't fit what's actually usable on
+   a candidate element — because the element itself is too short, a bend
+   eats into it, or both — the walk keeps going outward, repeating until it
+   finds an element that can hold the FULL requested spacing (per direct
+   instruction: it never silently settles for less on a nearby
+   insufficient element when a further one could satisfy the request).
+   Only if the whole pipe run is exhausted without finding a fit does it
+   fall back to the override dialog. This has been checked two ways so
+   far, neither of which is a substitute for the real thing:
    - Against real `.cii` files (not shipped in this repo) to confirm the
      rigid/bend detection reads the right pointers and produces
      structurally valid, re-parseable output with sane numbers.
@@ -51,12 +56,14 @@ still need a real Windows + CAESAR II check:
    **What's still unverified**: whether a `.CII` patched this way actually
    converts cleanly through `iecho.exe` and opens correctly in CAESAR II,
    and whether the resulting lift-point placement matches what an engineer
-   would actually want to see for a real rigid-element or bend scenario.
-   If you have a job with a lift point near a rigid support or a bend,
-   please run "Full .C2 Lift Creation" on it, watch for the new warning
-   messages (they name exactly which elements were skipped and why, and
-   report any spacing that got reduced for bend clearance), open the
-   result in CAESAR II, and report back whether the placement looks right.
+   would actually want to see for a real rigid-element, bend, or
+   too-short-element scenario — especially the walk-further-out behaviour
+   above, since it can now land the lift point noticeably farther from the
+   support node than earlier versions did. If you have a job with a lift
+   point near a rigid support, a bend, or a short element, please run
+   "Full .C2 Lift Creation" on it, watch for the new warning messages (they
+   name exactly which elements were skipped and why), open the result in
+   CAESAR II, and report back whether the placement looks right.
 
 Also still true from before: `pyinstaller autolift.spec` and the exe launch
 itself are worth re-confirming after pulling these changes, in case

@@ -8,15 +8,19 @@ Applies live-lift modifications to a parsed NeutralModel:
 
      The immediate neighbour isn't always the one actually split: a rigid
      element, a reducer, or an expansion joint can't carry an imposed
-     displacement, so the search walks further out (see
-     _walk_to_flexible_element) until it finds a plain pipe element,
-     preserving spacing_mm as a distance from the RESTRAINED node across
-     every hop skipped. If the chosen element's far node is a bend corner,
-     the bend's minimum required tangent length (T = R * tan(deflection/2),
-     deflection computed from the adjacent elements' own geometry, never
-     the #$ BEND record's angle fields) is kept clear too - see
-     reference/README.md for why. A SIF/tee pointer on the chosen element
-     is warned about, not skipped past.
+     displacement, and a bend eats into an element's usable length
+     (T = R * tan(deflection/2), deflection computed from the adjacent
+     elements' own geometry, never the #$ BEND record's angle fields - see
+     reference/README.md for why). Whenever the requested spacing doesn't
+     fit in what's usable on an element - too short, bend-adjacent, or
+     both - the search walks further out (see _walk_to_flexible_element)
+     until it finds one that can hold the FULL requested spacing, never
+     silently settling for less on a nearer, insufficient element. spacing
+     is preserved as a distance from the RESTRAINED node across every hop
+     skipped. Only if the whole pipe run is exhausted without finding a
+     fit does this fall back to asking the user (or, headless, the
+     existing warn-and-place-at-what's-available behaviour). A SIF/tee
+     pointer on the chosen element is warned about, not skipped past.
 
   2. Splits each outer element at a point 'spacing_mm' from the lifted node,
      inserting a new displacement node. New node number = midpoint rule:
@@ -334,17 +338,22 @@ def _walk_to_flexible_element(
         a bend corner, the bend's minimum required tangent length is
         computed from the adjacent elements' own geometry (see
         _bend_deflection_deg - never from the #$ BEND record's angle
-        fields) and the local spacing is capped to leave that length clear.
-        If the bend would consume the element's ENTIRE length, it's skipped
-        just like a rigid element instead of being force-placed inside the
-        bend's tangent zone.
+        fields), giving this element's actually-usable length (its own
+        length minus that tangent length, or its full length if no bend
+        applies).
+      - whenever the requested spacing doesn't fit in what's actually
+        usable here - the element itself is short, a bend eats into it, or
+        both - this element is skipped too, exactly like a rigid element,
+        and the next one further out is evaluated. This repeats until an
+        element is found that can hold the FULL requested spacing (per
+        direct instruction: never silently settle for less on a short or
+        bend-adjacent element when a further one could satisfy it).
 
-    Returns (element, local_spacing_mm, far_node) - local_spacing_mm is
-    already capped for any bend clearance found, but NOT yet checked
-    against the element's own plain length (that "too short" case still
-    goes through the existing override-dialog path in _resolve_split, since
-    it's a genuine "which element did you mean" ambiguity, not a mechanical
-    clearance fix). Returns None if the chain runs out or loops.
+    Returns (element, local_spacing_mm, far_node), where local_spacing_mm
+    is guaranteed to fit within that element (<= its usable length).
+    Returns None if the chain runs out or loops - at that point there is
+    no automatic answer left, and the caller falls back to asking the user
+    (see _resolve_split).
     """
     node = start_node
     remaining = node_spacing
@@ -383,6 +392,9 @@ def _walk_to_flexible_element(
                 f"Element {e.n_from}→{e.n_to} has a SIF/tee pointer — "
                 f"verify this lift point placement is acceptable.")
 
+        L = _element_length(e)
+        usable = L
+        bend_note = ""
         radius = bend_radius_at.get(far_node)
         if radius:
             into_elem = _upstream_element(far_node, elements)
@@ -391,26 +403,26 @@ def _walk_to_flexible_element(
                 deflect = _bend_deflection_deg(
                     _unit_vector(into_elem), _unit_vector(out_elem))
                 tangent = _bend_tangent_length_mm(radius, deflect)
-                L = _element_length(e)
                 usable = L - tangent
-                if usable <= 0:
-                    warnings.append(
-                        f"Element {e.n_from}→{e.n_to}: the bend at node "
-                        f"{far_node} (radius {radius:.0f} mm, {deflect:.1f}° "
-                        f"turn) needs {tangent:.0f} mm clearance, leaving no "
-                        f"usable length on this element at all — skipped "
-                        f"toward the next one.")
-                    remaining -= L
-                    node = far_node
-                    continue
-                if remaining > usable:
-                    warnings.append(
-                        f"Element {e.n_from}→{e.n_to}: the bend at node "
-                        f"{far_node} (radius {radius:.0f} mm, {deflect:.1f}° "
-                        f"turn) needs {tangent:.0f} mm clearance — spacing "
-                        f"reduced from {remaining:.0f} mm to {usable:.0f} mm "
-                        f"on this element.")
-                    remaining = usable
+                bend_note = (
+                    f" (a bend at node {far_node} - radius {radius:.0f} mm, "
+                    f"{deflect:.1f}° turn - needs {tangent:.0f} mm clearance, "
+                    f"leaving {max(usable, 0):.0f} mm usable)")
+
+        if remaining > usable:
+            # Not enough room here for the full requested spacing - whether
+            # because the element itself is short, a bend eats into it, or
+            # both. Per direct instruction: never settle for less than
+            # requested on this element - walk further out and keep
+            # looking, exactly like a rigid element/reducer/expansion joint.
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has only {max(usable, 0):.0f} mm "
+                f"usable{bend_note or f' (element length {L:.0f} mm)'}, less "
+                f"than the requested {remaining:.0f} mm spacing — skipped "
+                f"toward the next element.")
+            remaining -= L
+            node = far_node
+            continue
 
         if remaining < 0:
             # The elements skipped on the way out here (rigid/reducer/expjt,
@@ -456,32 +468,40 @@ def _resolve_split(
 ) -> Optional[SplitSpec]:
     found = _walk_to_flexible_element(
         lifted, side, node_spacing, elements, iel_by_pair, bend_radius_at, warnings)
+
     if found is None:
-        warnings.append(
-            f"Node {lifted}: no {side} plain pipe element found (ran out of "
-            f"elements, or every candidate was a rigid element / reducer / "
-            f"expansion joint / fully bend-consumed) — {side} split skipped.")
-        return None
-
-    elem, remaining, _far_node = found
-    L = _element_length(elem)
-    candidate = _midpoint_node(elem.n_from, elem.n_to)
-    direction = -1 if side == "upstream" else +1
-    new_node = _free_node(candidate, existing_nodes, direction)
-
-    if remaining > L:
+        # The walk exhausted the pipe run (or looped) without ever finding
+        # an element that could hold the full requested spacing - there is
+        # no automatic answer left. Fall back to asking the user (or, with
+        # no override callback, the existing warn-and-use-what's-there
+        # fallback), pre-filled with the immediate neighbours same as
+        # before this element-walk existed.
         problem = (
-            f"{side.capitalize()} element {elem.n_from}→{elem.n_to} is "
-            f"{L:.0f} mm — shorter than the required spacing "
-            f"{remaining:.0f} mm.")
-        up_disp = elem if side == "upstream" else _upstream_element(lifted, elements)
-        dn_disp = elem if side == "downstream" else _downstream_element(lifted, elements)
+            f"No {side} element with enough usable length for the "
+            f"requested {node_spacing:.0f} mm spacing was found from node "
+            f"{lifted} — every candidate was too short, a rigid element / "
+            f"reducer / expansion joint, or fully consumed by a bend's "
+            f"clearance, all the way to the end of the pipe run.")
+        up_disp = _upstream_element(lifted, elements)
+        dn_disp = _downstream_element(lifted, elements)
+        fallback_elem = up_disp if side == "upstream" else dn_disp
+        if fallback_elem is None:
+            warnings.append(f"Node {lifted}: {problem} No {side} element "
+                            f"exists at all — {side} split skipped.")
+            return None
+        candidate = _midpoint_node(fallback_elem.n_from, fallback_elem.n_to)
+        direction = -1 if side == "upstream" else +1
+        new_node = _free_node(candidate, existing_nodes, direction)
         return _handle_short(
             problem, lifted, up_disp, dn_disp,
-            new_node, remaining, side,
+            new_node, node_spacing, side,
             elements, existing_nodes, on_override, warnings,
         )
 
+    elem, remaining, _far_node = found
+    candidate = _midpoint_node(elem.n_from, elem.n_to)
+    direction = -1 if side == "upstream" else +1
+    new_node = _free_node(candidate, existing_nodes, direction)
     existing_nodes.add(new_node)
     return SplitSpec(elem, lifted, new_node, remaining, side)
 

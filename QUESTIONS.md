@@ -59,14 +59,16 @@ where Claude parks non-blocking questions + logs assumptions
   the single most important behavioural assumption in the new patcher logic
   — flag it explicitly if a real CAESAR check shows the placement should be
   measured differently.
-- **Bend clearance shortfall auto-clamps and warns; it does NOT open the
-  existing `ElementOverrideDialog`.** The plain "element shorter than
-  requested spacing" case (no bend involved) still goes through that
-  dialog, unchanged. Reasoning: a bend-clearance shortfall has one
-  mechanically correct fix (shrink spacing to the available tangent-clear
-  length, or walk past if that's zero) — there's no "which element did you
-  actually mean" ambiguity for the dialog to resolve, unlike the pre-
-  existing short-element case.
+- **Superseded 2026-09-09 (see the entry below): bend clearance shortfall
+  no longer auto-clamps.** This originally said a bend-clearance shortfall
+  would shrink spacing to what's tangent-clear (or walk past only if that
+  left zero usable length) without opening `ElementOverrideDialog`, while
+  a plain too-short element (no bend) still went through that dialog. Per
+  a direct instruction, that same-element clamp is gone: ANY shortfall —
+  too-short, bend-adjacent, or both — now walks further out instead,
+  and the dialog is reached only once the whole pipe run is exhausted.
+  Left here (not deleted) so the reasoning trail for why a dialog was
+  ever in the loop at all stays visible.
 - **A SIF/tee pointer warns but never blocks or skips** — matches the
   literal instruction ("there should be a warning"), not treated as a
   reason to walk further like rigid/reducer/expansion-joint.
@@ -81,6 +83,25 @@ where Claude parks non-blocking questions + logs assumptions
   (flagged as valuable, not yet built — see TESTING.md's developer
   reference section), sourcing/licensing a sample file for AutoLift's own
   use would need a separate decision, not assumed here.
+
+## Assumptions made — generalized walk-past-insufficiency (2026-09-09)
+- **Direct instruction, not an assumption**, but logging the implementation
+  choice: "insufficient" is now ONE unified concept in
+  `_walk_to_flexible_element` (`if remaining > usable: skip`) covering all
+  four reasons an element can't take the placement — rigid, reducer,
+  expansion joint, and now also plain-too-short and bend-shortfall. Judged
+  low-risk/reversible to implement as a single check rather than keeping
+  the reasons as separate code paths that happen to behave the same, since
+  that's less likely to drift out of sync if one reason's handling changes
+  later.
+- **`_resolve_split`'s fallback (override dialog / headless
+  warn-and-place) now always pre-fills with the ORIGINAL immediate
+  neighbour of the lifted node**, not wherever the walk happened to stop
+  before giving up. Reasoning: it's the most conservative, nearest-to-
+  support default, and matches what the dialog showed before this walk
+  logic existed at all — an engineer overriding by hand is most likely
+  thinking about the element right next to the support, not one several
+  hops out that the walk rejected.
 
 ## Open, non-blocking (need input before the relevant build step, not now)
 - RUN_PENDING → FORCES_READ completion detection: HANDOFF.md referenced an

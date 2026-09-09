@@ -116,3 +116,26 @@ running status log Claude appends to (skim this from mobile)
   `ensure_installed()` explicitly deletes any stray `(Default)` value on
   the parent key so an existing (already-broken) install self-heals too,
   not just fresh ones.
+- 2026-09-09: Direct instruction (PR comment): when the requested spacing
+  exceeds what's actually usable on the chosen upstream/downstream
+  element — whether because the element itself is short, a bend eats into
+  it, or both — `neutral_patcher.py` must keep walking further out and
+  evaluate the next element, repeating until one is found that can hold
+  the FULL requested spacing, rather than settling for less on a nearby
+  insufficient one. This generalizes the existing rigid/reducer/expjt skip
+  in `_walk_to_flexible_element`: it's now one unified
+  `if remaining > usable: skip` check covering all four reasons an element
+  can't take the placement, not two separate code paths. The old
+  same-element "clamp spacing to what's available" behaviour for a
+  bend shortfall is gone — replaced by walking past, matching what already
+  happened for a fully bend-consumed element. `_resolve_split`'s
+  `_handle_short`/override-dialog fallback is now reached only when the
+  walk is fully exhausted (ran out of pipe) or loops, using the ORIGINAL
+  immediate neighbour as its pre-filled default (unchanged from the
+  dialog's original pre-walk behaviour). Re-verified: rewrote the pure-
+  function test suite (10 checks, all passing) plus the two real-
+  `44002.cii` round-trip cases from before — both now walk further than
+  they used to (node 50's upstream side now also skips a 500mm too-short
+  element it previously stopped at; node 35's bend case now walks past
+  the bend-adjacent element entirely instead of clamping to 500mm), files
+  still re-parse cleanly, `NUMELT` still matches.
