@@ -31,7 +31,8 @@ from typing import List, Optional
 
 import lift_meta
 
-from iecho import launch_for_export, convert_cii_to_c2, find_iecho, cii_is_current
+from iecho import launch_for_export, convert_cii_to_c2, cii_is_current
+from tool_discovery import probe_capabilities
 from neutral_reader import read_neutral_file, read_restrained_nodes
 from neutral_patcher import patch_model
 from ui_dialogs import (
@@ -89,11 +90,13 @@ def run(initial_folder: Optional[Path] = None) -> None:
     initial_folder : from %V context menu arg, or None to prompt.
     """
 
-    # ── Verify iecho is available before touching anything ───────────────────
-    try:
-        find_iecho()
-    except FileNotFoundError as e:
-        show_message("iecho not found", str(e), error=True)
+    # ── Verify CAESAR tooling is available before touching anything ─────────
+    # Every CAESAR-driving action below (launch_for_export, convert_cii_to_c2)
+    # depends on iecho.exe — gate the whole workflow on one capability probe
+    # up front instead of letting it fail deep inside step 5 or 8.
+    report = probe_capabilities()
+    if not report.iecho_available:
+        show_message("iecho not found", report.reason, error=True)
         sys.exit(1)
 
     # ── Step 1: Resolve folder ────────────────────────────────────────────────

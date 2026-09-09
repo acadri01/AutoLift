@@ -18,6 +18,7 @@ a = Analysis(
         'install_context_menu',
         # creator (LiftNeutralFileModifier) modules imported by name
         'create_lift_case', 'config', 'copy_main_cii', 'iecho',
+        'tool_discovery',
         'lift_case_builder', 'neutral_patcher', 'neutral_reader',
         'neutral_writer', 'ui_dialogs',
         # documenter (MarkUpGen) modules imported by name

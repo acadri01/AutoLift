@@ -103,7 +103,42 @@ where Claude parks non-blocking questions + logs assumptions
   thinking about the element right next to the support, not one several
   hops out that the walk rejected.
 
+## Assumptions made — Milestone 2, tool_discovery.py (2026-09-09)
+- **Only iecho.exe resolution was actually generalized into
+  `tool_discovery.py`.** SPEC.md's milestone 2 wording also names a
+  "CAESAR input-GUI exe" and a "CAESAR data root" to resolve, but nothing
+  in this codebase drives either today — `os.startfile()` in `line_ui.py`
+  just opens a `.C2` with whatever CAESAR II's own installer already
+  associated it with; no path lookup is needed for that to work. Building
+  a resolution scheme for two paths with no real caller to validate it
+  against risked guessing wrong (which directory layout? cached how?
+  probed how?) for no present benefit, so it's deferred rather than
+  invented. `tool_discovery.py`'s module docstring explains this. Moved to
+  "Open, non-blocking" below since it isn't blocking any current
+  milestone — flag it again once a concrete feature (e.g. an "open input
+  file in CAESAR II" button, or a data-root-relative file browser) needs
+  one of these paths, and I'll design its resolution against that real
+  need instead of a guess.
+- **`probe_capabilities()` gates the Creator's existing startup check**,
+  replacing the direct `find_iecho()` try/except that was already there
+  in `lift_case_builder.run()` — same user-visible outcome (same error
+  message text, same `show_message` + `sys.exit(1)`), just routed through
+  one shared capability-probe pattern so future entry points (e.g.
+  milestone 4's single-window "Create lift case..." button) can reuse
+  `report.iecho_available` to grey out/hide the action instead of letting
+  it fail after the user has already started.
+- `iecho.py` keeps re-exporting `find_iecho` (`from tool_discovery import
+  find_iecho`) so every existing `from iecho import ... find_iecho ...`
+  caller works unchanged — didn't touch call sites beyond
+  `lift_case_builder.py`'s startup gate, which needed the richer
+  `CapabilityReport` instead of a bare exception.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
+- **CAESAR input-GUI exe / CAESAR data root resolution** (see the
+  Milestone 2 assumption above) — SPEC.md's milestone 2 wording names
+  these, but no current feature drives either, so `tool_discovery.py` only
+  resolves iecho.exe for now. Needs a concrete consuming feature before a
+  resolution scheme for these two is worth designing.
 - RUN_PENDING → FORCES_READ completion detection: HANDOFF.md referenced an
   existing "C2Watchdog" `.c2db`-mtime-watch pattern that does not appear in
   either provided codebase. Currently planned as new work (step 7 of the

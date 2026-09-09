@@ -139,3 +139,27 @@ running status log Claude appends to (skim this from mobile)
   element it previously stopped at; node 35's bend case now walks past
   the bend-adjacent element entirely instead of clamping to 500mm), files
   still re-parse cleanly, `NUMELT` still matches.
+- 2026-09-09: Started Milestone 2 (`tool_discovery.py`) — moved
+  `iecho.find_iecho()`'s config→env→known-paths resolution logic into a
+  new `src/creator/tool_discovery.py`, unchanged in order/behaviour/error
+  message, plus a `probe_capabilities()` capability probe returning a
+  `CapabilityReport` (iecho_available/iecho_path/reason) instead of
+  raising. `iecho.py` now re-exports `find_iecho` from there so no other
+  caller needed to change. `lift_case_builder.run()`'s existing "verify
+  iecho before touching anything" startup check now goes through
+  `probe_capabilities()` — same user-visible message and exit behaviour,
+  but the gate is now a reusable pattern future entry points (e.g.
+  milestone 4's in-Documenter "Create lift case...") can call before
+  offering a CAESAR-driving action at all, not just catch its failure.
+  Added `tool_discovery` to `autolift.spec`'s hiddenimports. Deliberately
+  did NOT invent resolution for the "CAESAR input-GUI exe" / "CAESAR data
+  root" SPEC.md also names for this milestone — nothing in the codebase
+  drives either yet, so guessing a scheme had no real caller to validate
+  against; logged as an open, non-blocking item in QUESTIONS.md instead.
+  Verified: `py_compile` clean on all three touched files; a headless
+  script exercising `tool_discovery.find_iecho()`/`probe_capabilities()`
+  directly (env-var resolution, cache reset, unavailable→available
+  transition) and `iecho.find_iecho()`'s re-export all pass; confirmed
+  `lift_case_builder.py`'s full import chain still resolves cleanly
+  (tkinter/win32 stubbed) after the `find_iecho` → `probe_capabilities`
+  swap.

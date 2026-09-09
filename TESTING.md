@@ -65,6 +65,17 @@ still need a real Windows + CAESAR II check:
    name exactly which elements were skipped and why), open the result in
    CAESAR II, and report back whether the placement looks right.
 
+3. **`tool_discovery.py` (Milestone 2, internal refactor, same behaviour).**
+   `iecho.exe` path resolution moved into a new shared module; the
+   "iecho not found" startup check now goes through it. This should be
+   invisible — same messages, same behaviour — but since it touches how
+   the Creator verifies CAESAR tooling before doing anything, it's worth a
+   quick sanity check: run "Full .C2 Lift Creation" once with CAESAR II
+   installed normally (should proceed exactly as before), and if you ever
+   want to check the failure path, temporarily rename `iecho.exe` (or
+   point `IECHO_PATH` somewhere invalid) and confirm you still get the
+   same clear "iecho.exe not found" message before any dialogs open.
+
 Also still true from before: `pyinstaller autolift.spec` and the exe launch
 itself are worth re-confirming after pulling these changes, in case
 anything above broke the build.
@@ -245,6 +256,10 @@ functions or pure data transforms:
 - `src/creator/neutral_reader.py` / `neutral_writer.py` — CAESAR neutral
   file parsing/formatting, given a sample `.CII` fixture (would need a
   real, license-clean sample file to test against).
+- `src/creator/tool_discovery.py`'s `find_iecho()` / `probe_capabilities()`
+  — pure path resolution (config → env → known paths) plus a
+  no-raise capability report, no Windows/CAESAR needed to exercise the
+  logic itself (only the actual found paths are Windows-specific).
 - `src/creator/neutral_patcher.py`'s `_bend_deflection_deg`,
   `_bend_tangent_length_mm`, `_read_bend_radii`, and `_bend_corner_radii` —
   pure geometry/parsing functions, no I/O, no CAESAR needed. Already
