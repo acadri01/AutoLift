@@ -243,3 +243,61 @@ running status log Claude appends to (skim this from mobile)
   reimplementation of the drag-motion index bookkeeping against a fake
   Listbox stub (both drag-down and drag-up), since real Tkinter isn't
   available in this Linux session to exercise the actual bound handlers.
+- 2026-09-09: Real-machine PR-comment report: an element with a vertical
+  component (a riser) was being placed on instead of skipped, and a
+  question about why the requested spacing seemed to shrink per hop.
+  1. **Vertical-component skip.** `neutral_patcher.py`'s
+     `_walk_to_flexible_element` now rejects any candidate element with a
+     nonzero rise/drop along whichever axis is vertical, exactly like it
+     already does for rigid/reducer/expjt elements - a lift point needs a
+     horizontal run to sit on, not a riser. Which axis counts as vertical
+     is NOT hardcoded: CAESAR II lets a model use either global -Y or
+     global -Z as vertical (the `#$ CONTROL` section's IZUP flag), and
+     real files use both - confirmed by checking Conduit's own real
+     samples: `44002.cii` (the exact file used for all the earlier
+     bend/rigid verification) is actually IZUP=1 (Z vertical), while
+     `TESTv15.cii`/`NEWTEST.cii` are IZUP=0 (Y vertical). Added
+     `_read_izup()` (byte-verified against all three real files) and
+     `_vertical_component`/`_is_vertical`, threaded an `izup` parameter
+     (default 0, backward compatible) through `_walk_to_flexible_element`
+     -> `_resolve_split` -> `_determine_splits`, computed once in
+     `patch_model` from the file being patched. IZUP's own documentation
+     in reference/NeutralFile-v15.pdf is misleading on its own (the flag's
+     description is crammed into the middle of an unrelated bullet, not
+     given its own numbered item) - confirmed the real byte layout
+     directly against three real sample files instead of trusting the
+     prose alone.
+  2. **"Requested spacing reduced per element" - clarified as intentional,
+     not a bug.** This is the distance-from-support preservation the
+     walk-past logic has had since the 2026-09-09 walk-past-insufficiency
+     change: skipping a 65mm element on a 750mm request correctly leaves
+     685mm (750-65) needed on the next one, so the total distance from the
+     original support node still comes out to 750mm once a fit is found -
+     confirmed against the user's own screenshot numbers (1450->1480
+     skipped, 65mm long -> next ask correctly shown as 685mm). No code
+     change; explained in the PR reply.
+  **Separately flagged, NOT changed**: while tracing this, found that
+  displacement application is unconditionally hardcoded to global DY
+  (`DISP_DOF_INDEX`, `_build_displmnt_record`) regardless of IZUP - so for
+  an IZUP=1 (Z-vertical) file, the "lift" displacement may be getting
+  applied along the WRONG axis, a real engineering-correctness question
+  about pre-existing (never modified by this project) behaviour. This
+  wasn't part of what was asked, is a change to actual physical output
+  (not internal refactor), and directly affects generated lift case
+  results, so per CLAUDE.md this is a stop-and-ask item, not something to
+  silently fix - logged in QUESTIONS.md and raised explicitly in the PR
+  reply rather than touched.
+  Verified: `py_compile` clean; `_read_izup` byte-checked against all
+  three real sample files in Conduit's `fixtures/real-samples/`; 6 new
+  synthetic pure-function checks (riser skip under IZUP=0, a dz-only jog
+  correctly NOT flagged under IZUP=0 vs. correctly flagged under IZUP=1,
+  default-izup backward compatibility) added to the running scratch test
+  suite (16/16 passing including all prior checks, two of which needed
+  their own fixtures fixed - an old test's "next" element was arbitrarily
+  vertical and is now correctly caught by the new rule, a fixture
+  limitation, not a code defect); a full `read_neutral_file` ->
+  `patch_model` -> `read_neutral_file` round trip against the real,
+  IZUP=1 `44002.cii`, lifting a node bracketed by two vertical (dz-only)
+  runs and three rigid elements - correctly skipped all of them and
+  landed on genuinely horizontal elements on both sides, patched file
+  re-parses cleanly, NUMELT matches.

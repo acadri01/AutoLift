@@ -175,6 +175,48 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
+## Stop-and-ask (blocking - real engineering-correctness question, 2026-09-09)
+- **Is displacement always applied along the wrong axis for a Z-vertical
+  (IZUP=1) file?** While adding the vertical-component element-skip rule
+  (see above), found that `neutral_patcher.py`'s displacement application
+  is unconditionally hardcoded to global **DY** (`DISP_DOF_INDEX = 13` in
+  `_build_displmnt_record` - "DY of vector 3") regardless of the file's
+  own IZUP flag. CAESAR II lets a model use either global -Y or global -Z
+  as vertical, and this matters here: `44002.cii` (the real sample used
+  for all the bend/rigid verification so far in this project) is IZUP=1
+  (Z vertical), not the more common IZUP=0 (Y vertical). If a "lift" is
+  meant to simulate an imposed vertical displacement, applying it to DY on
+  a Z-vertical file would be pushing the pipe sideways, not up - the
+  generated lift case's forces/results could be physically wrong for
+  every Z-up job, silently.
+  - This is **pre-existing behaviour from the original, unmodified
+    LiftNeutralFileModifier tool** (Phase 0 carried it over byte-for-byte;
+    nothing in this project has touched `DISP_DOF_INDEX` before now) - not
+    something introduced by any change in this PR.
+  - Not fixed here: this is a change to the tool's actual physical
+    output, not an internal refactor, so it's exactly the kind of
+    "genuine requirement ambiguity / correctness question with materially
+    different results" CLAUDE.md says to stop and ask about, not decide
+    unilaterally - especially since I can't verify the right answer by
+    reading the neutral file format alone (whether CAESAR's own DOF
+    numbering for DY/DZ swaps meaning under IZUP=1, or whether "global Y"
+    always literally means the Y axis regardless of which one is
+    "vertical", is the kind of thing that needs either your own domain
+    knowledge or a real CAESAR II round-trip test to confirm either way).
+  - **If you confirm this is real**: the concrete next step is to make
+    `_build_displmnt_record`'s `DISP_DOF_INDEX` selection depend on this
+    file's IZUP (already parsed via `_read_izup`, exported from
+    `neutral_patcher.py`) - DY's index (13) for IZUP=0, DZ's index
+    (`(3-1)*6 + 2 = 14`, following the same vector-3 pattern) for IZUP=1 -
+    threaded into `patch_model` the same way `izup` already is for the
+    element-skip logic. Small, mechanical change once confirmed; not
+    attempted here because the *direction* of the fix depends on an
+    engineering fact I don't have independent means to verify.
+  - **If you tell me this is a non-issue** (e.g. CAESAR's neutral-file DOF
+    slots are NOT axis-relative to IZUP, and "DY" always means the
+    literal global Y regardless of which axis is vertical): no code
+    change needed, and this can be logged as a resolved non-issue instead.
+
 ## Open, non-blocking (need input before the relevant build step, not now)
 - **Natural-sort for `lines_for_wo`/`wos()`** (see the assumption above) -
   not reported, no manual-reorder UI exists for either yet, so left as

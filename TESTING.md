@@ -56,24 +56,41 @@ you're on the latest commit.
      install folder or the `Lifting_Calcs` container folder no longer adds
      anything new to the tree.
 
-2. **New engineering logic in the Creator.** `neutral_patcher.py` walks
-   past a rigid element, reducer, or expansion joint next to a lift/support
-   node (instead of splitting it, which CAESAR can't accept a displacement
-   on) to find the next plain pipe element. If the requested spacing
-   doesn't fit what's actually usable on a candidate element — because the
-   element itself is too short, a bend eats into it, or both — the walk
-   keeps going outward, repeating until it finds an element that can hold
-   the FULL requested spacing, never silently settling for less on a
-   nearby insufficient element. Only if the whole pipe run is exhausted
-   does it fall back to the override dialog. Checked so far against real
-   `.cii` files (structural validity, sane numbers) and pure-function
-   geometry unit checks — **still unverified**: whether a patched `.CII`
-   actually converts through `iecho.exe` and opens correctly in CAESAR II,
-   and whether the placement itself looks right to an engineer. If you
-   have a job with a lift point near a rigid support, a bend, or a short
-   element, please run "Full .C2 Lift Creation" on it, watch for the
-   warning messages (they name exactly which elements were skipped and
-   why), open the result in CAESAR II, and report back.
+2. **New engineering logic in the Creator — now also skips vertical runs.**
+   `neutral_patcher.py` walks past a rigid element, reducer, or expansion
+   joint next to a lift/support node (instead of splitting it, which
+   CAESAR can't accept a displacement on) to find the next plain pipe
+   element, and now ALSO skips any element with a vertical component (a
+   riser) — a lift point needs a horizontal run to sit on. "Vertical" is
+   read from the file's own IZUP flag, not assumed — CAESAR II models can
+   use either global Y or global Z as vertical, and both appear in real
+   files. If the requested spacing doesn't fit what's actually usable on a
+   candidate element — because the element itself is too short, a bend
+   eats into it, or both — the walk keeps going outward, repeating until
+   it finds an element that can hold the FULL requested spacing, never
+   silently settling for less on a nearby insufficient element (the
+   spacing shown shrinking on each subsequent warning as you saw is
+   expected — it's the same requested distance measured from the support
+   node, just from a point further along; see the PR reply for the exact
+   numbers). Only if the whole pipe run is exhausted does it fall back to
+   the override dialog. Checked so far against real `.cii` files
+   (structural validity, sane numbers, both a Y-vertical and a Z-vertical
+   real sample) and pure-function unit checks — **still unverified**:
+   whether a patched `.CII` actually converts through `iecho.exe` and
+   opens correctly in CAESAR II, and whether the placement itself looks
+   right to an engineer now that vertical runs are also skipped. Please
+   re-run the same job that showed the vertical-element issue, confirm it
+   now gets skipped (watch for a "has a vertical component" warning naming
+   that element), open the result in CAESAR II, and report back.
+
+   **Separately raised, not yet fixed — see QUESTIONS.md "Stop-and-ask"**:
+   while adding this, found that the applied lift displacement itself is
+   hardcoded to global DY regardless of which axis the file marks as
+   vertical, which could mean it's being applied along the wrong axis for
+   a Z-vertical file. This is pre-existing behaviour (not something this
+   PR changed) and affects actual physical output, so it needs your
+   confirmation before anything is touched — see the PR for the full
+   explanation.
 
 Lower priority, internal refactors that should be behaviour-preserving
 (worth a quick sanity pass, not a dedicated test session): the grouped
