@@ -56,7 +56,8 @@ you're on the latest commit.
      install folder or the `Lifting_Calcs` container folder no longer adds
      anything new to the tree.
 
-2. **New engineering logic in the Creator — now also skips vertical runs.**
+2. **New engineering logic in the Creator — now also skips vertical runs,
+   and fixes a real "placed a displacement on a bend" bug.**
    `neutral_patcher.py` walks past a rigid element, reducer, or expansion
    joint next to a lift/support node (instead of splitting it, which
    CAESAR can't accept a displacement on) to find the next plain pipe
@@ -72,25 +73,41 @@ you're on the latest commit.
    spacing shown shrinking on each subsequent warning as you saw is
    expected — it's the same requested distance measured from the support
    node, just from a point further along; see the PR reply for the exact
-   numbers). Only if the whole pipe run is exhausted does it fall back to
-   the override dialog. Checked so far against real `.cii` files
-   (structural validity, sane numbers, both a Y-vertical and a Z-vertical
-   real sample) and pure-function unit checks — **still unverified**:
-   whether a patched `.CII` actually converts through `iecho.exe` and
-   opens correctly in CAESAR II, and whether the placement itself looks
-   right to an engineer now that vertical runs are also skipped. Please
-   re-run the same job that showed the vertical-element issue, confirm it
-   now gets skipped (watch for a "has a vertical component" warning naming
-   that element), open the result in CAESAR II, and report back.
+   numbers).
+
+   **The bug you hit** ("this caused a bend to break"): when a chain of
+   skips landed the walk right next to a bend, the fallback that places a
+   displacement once the requested spacing is used up only ever checked
+   for a bend at the FAR end of the element it landed on — never at the
+   NEAR end (the exact point the walk had just arrived at). If that point
+   was itself a bend corner, the displacement got placed inside the
+   bend's own tangent zone. Now both ends of every candidate element are
+   checked, and a near-side bend clamps the placement out to that bend's
+   own minimum clearance instead of landing on top of it. Confirmed this
+   was a real, live issue on a real file: `44002.cii` (used throughout
+   this project's verification) has two of the affected real bend
+   corners, and the old code would have placed a displacement directly on
+   them.
+
+   Only if the whole pipe run is exhausted does the walk fall back to the
+   override dialog. Checked so far against real `.cii` files (structural
+   validity, sane numbers, a real reproduction of the exact reported bug
+   shape) and pure-function unit checks — **still unverified**: whether a
+   patched `.CII` actually converts through `iecho.exe` and opens
+   correctly in CAESAR II, and whether the placement now looks right in
+   CAESAR II itself. Please re-run the same job that showed both the
+   vertical-element and the broken-bend issue, confirm the vertical
+   element is skipped and the bend near the final placement is no longer
+   broken, open the result in CAESAR II, and report back.
 
    **Separately raised, not yet fixed — see QUESTIONS.md "Stop-and-ask"**:
-   while adding this, found that the applied lift displacement itself is
-   hardcoded to global DY regardless of which axis the file marks as
-   vertical, which could mean it's being applied along the wrong axis for
-   a Z-vertical file. This is pre-existing behaviour (not something this
-   PR changed) and affects actual physical output, so it needs your
-   confirmation before anything is touched — see the PR for the full
-   explanation.
+   while adding the vertical-skip check, found that the applied lift
+   displacement itself is hardcoded to global DY regardless of which axis
+   the file marks as vertical, which could mean it's being applied along
+   the wrong axis for a Z-vertical file. This is pre-existing behaviour
+   (not something this PR changed) and affects actual physical output, so
+   it needs your confirmation before anything is touched — see the PR for
+   the full explanation.
 
 Lower priority, internal refactors that should be behaviour-preserving
 (worth a quick sanity pass, not a dedicated test session): the grouped

@@ -10,20 +10,26 @@ Applies live-lift modifications to a parsed NeutralModel:
      element, a reducer, or an expansion joint can't carry an imposed
      displacement; an element with ANY vertical component (a riser, not a
      horizontal run - see _vertical_component and IZUP below) isn't
-     suitable for a lift point either; and a bend eats into an element's
-     usable length (T = R * tan(deflection/2), deflection computed from the
-     adjacent elements' own geometry, never the #$ BEND record's angle
-     fields - see reference/README.md for why). Whenever the requested
-     spacing doesn't fit in what's usable on an element - too short,
-     bend-adjacent, or both - the search walks further out (see
-     _walk_to_flexible_element) until it finds one that can hold the FULL
-     requested spacing, never silently settling for less on a nearer,
-     insufficient element. spacing is preserved as a distance from the
-     RESTRAINED node across every hop skipped. Only if the whole pipe run
-     is exhausted without finding a fit does this fall back to asking the
-     user (or, headless, the existing warn-and-place-at-what's-available
-     behaviour). A SIF/tee pointer on the chosen element is warned about,
-     not skipped past.
+     suitable for a lift point either; and a bend at EITHER end of an
+     element eats into its valid placement zone (T = R * tan(deflection/2),
+     deflection computed from the adjacent elements' own geometry, never
+     the #$ BEND record's angle fields - see reference/README.md for why).
+     A far bend (the end being walked toward) caps how far into the element
+     a placement can go; a near bend (the end just arrived at, typically
+     after a skip) sets a minimum distance from that end - both are
+     checked, not just the far one (checking only the far end was a real
+     bug: it let a placement land inside a bend's own tangent zone). A far
+     bend that leaves too little room is escaped by walking further out
+     (see _walk_to_flexible_element) until an element is found that can
+     hold the FULL requested spacing, never silently settling for less on
+     a nearer, insufficient element; a near bend can't be escaped that way
+     (the next element out has the same problem one hop later), so the
+     placement is clamped up to that bend's own minimum clearance instead.
+     spacing is preserved as a distance from the RESTRAINED node across
+     every hop skipped. Only if the whole pipe run is exhausted without
+     finding a fit does this fall back to asking the user (or, headless,
+     the existing warn-and-place-at-what's-available behaviour). A SIF/tee
+     pointer on the chosen element is warned about, not skipped past.
 
      "Vertical" depends on the file's own IZUP flag (#$ CONTROL) - CAESAR
      II lets a model use either global -Y or global -Z as vertical, and
@@ -381,6 +387,30 @@ def _bend_tangent_length_mm(radius_mm: float, deflection_deg: float) -> float:
     return radius_mm * math.tan(math.radians(deflection_deg) / 2.0)
 
 
+def _bend_tangent_at_node(
+    node: int,
+    elements: List[Element],
+    bend_radius_at: Dict[int, float],
+) -> Tuple[float, Optional[float], Optional[float]]:
+    """
+    If `node` is a bend corner, return (tangent_mm, radius_mm, deflect_deg) -
+    the minimum straight length required on EITHER side of that bend,
+    computed from the two elements meeting there (see _bend_deflection_deg -
+    the corner's own geometry, never the #$ BEND record's angle fields).
+    Returns (0.0, None, None) if `node` isn't a bend corner, or its adjacent
+    elements can't both be found (can't compute a deflection without both).
+    """
+    radius = bend_radius_at.get(node)
+    if not radius:
+        return 0.0, None, None
+    into_elem = _upstream_element(node, elements)
+    out_elem = _downstream_element(node, elements)
+    if into_elem is None or out_elem is None:
+        return 0.0, None, None
+    deflect = _bend_deflection_deg(_unit_vector(into_elem), _unit_vector(out_elem))
+    return _bend_tangent_length_mm(radius, deflect), radius, deflect
+
+
 def _walk_to_flexible_element(
     start_node: int,
     side: str,                                    # "upstream" | "downstream"
@@ -405,23 +435,31 @@ def _walk_to_flexible_element(
         lift point needs a horizontal run to sit on, not a riser.
       - a SIF/tee pointer on the chosen element is warned about, not
         skipped past - it's still eligible for the split.
-      - if the chosen element's far node (the end away from start_node) is
-        a bend corner, the bend's minimum required tangent length is
-        computed from the adjacent elements' own geometry (see
-        _bend_deflection_deg - never from the #$ BEND record's angle
-        fields), giving this element's actually-usable length (its own
-        length minus that tangent length, or its full length if no bend
-        applies).
-      - whenever the requested spacing doesn't fit in what's actually
-        usable here - the element itself is short, a bend eats into it, or
+      - if EITHER end of the chosen element is a bend corner, that bend's
+        minimum required tangent length is computed from the adjacent
+        elements' own geometry (see _bend_deflection_deg - never from the
+        #$ BEND record's angle fields). A bend at the FAR end (away from
+        `node`, i.e. the direction being walked toward) caps how far into
+        the element a placement can go; a bend at the NEAR end (`node`
+        itself - typically the far end of an element skipped the hop
+        before) sets a MINIMUM distance a placement must be from that end.
+        Checking only the far end was a real bug (fixed 2026-09-09): it let
+        a placement land inside a bend's own tangent zone whenever a skip
+        happened to land the walk right next to one.
+      - whenever the requested spacing doesn't fit in what's actually valid
+        here - the element itself is short, a far bend eats into it, or
         both - this element is skipped too, exactly like a rigid element,
         and the next one further out is evaluated. This repeats until an
         element is found that can hold the FULL requested spacing (per
         direct instruction: never silently settle for less on a short or
-        bend-adjacent element when a further one could satisfy it).
+        bend-adjacent element when a further one could satisfy it). A near
+        bend can't be escaped by walking further (the next element out has
+        the same node as ITS near end too), so instead of skipping, the
+        placement is clamped up to that bend's own minimum clearance.
 
     Returns (element, local_spacing_mm, far_node), where local_spacing_mm
-    is guaranteed to fit within that element (<= its usable length).
+    is guaranteed to fall within the element's VALID zone - past any near
+    bend's minimum clearance, short of any far bend's tangent zone.
     Returns None if the chain runs out or loops - at that point there is
     no automatic answer left, and the caller falls back to asking the user
     (see _resolve_split).
@@ -475,30 +513,58 @@ def _walk_to_flexible_element(
                 f"verify this lift point placement is acceptable.")
 
         L = _element_length(e)
-        usable = L
-        bend_note = ""
-        radius = bend_radius_at.get(far_node)
-        if radius:
-            into_elem = _upstream_element(far_node, elements)
-            out_elem = _downstream_element(far_node, elements)
-            if into_elem is not None and out_elem is not None:
-                deflect = _bend_deflection_deg(
-                    _unit_vector(into_elem), _unit_vector(out_elem))
-                tangent = _bend_tangent_length_mm(radius, deflect)
-                usable = L - tangent
-                bend_note = (
-                    f" (a bend at node {far_node} - radius {radius:.0f} mm, "
-                    f"{deflect:.1f}° turn - needs {tangent:.0f} mm clearance, "
-                    f"leaving {max(usable, 0):.0f} mm usable)")
 
-        if remaining > usable:
+        # A bend can sit at EITHER end of this element - the far end (the
+        # corner we're walking toward) restricts how far INTO this element a
+        # placement can go; a bend at the near end (`node` - where the walk
+        # just arrived, e.g. the far end of an element skipped the hop
+        # before) restricts how close to the START of this element a
+        # placement can be. Missing the near-end case was a real bug: it let
+        # a placement land exactly on/inside a bend's own tangent zone
+        # whenever a skip (rigid/vertical/too-short/etc.) landed the walk
+        # right next to one - reported 2026-09-09 ("this caused a bend to
+        # break"). Both must be checked for every candidate element.
+        tangent_far, radius_far, deflect_far = _bend_tangent_at_node(
+            far_node, elements, bend_radius_at)
+        tangent_near, radius_near, deflect_near = _bend_tangent_at_node(
+            node, elements, bend_radius_at)
+
+        valid_max = L - tangent_far    # furthest a placement can be from `node`
+        valid_min = tangent_near       # closest a placement can be to `node`
+
+        bend_note = ""
+        if radius_far is not None:
+            bend_note += (
+                f" (a bend at node {far_node} - radius {radius_far:.0f} mm, "
+                f"{deflect_far:.1f}° turn - needs {tangent_far:.0f} mm "
+                f"clearance from that end)")
+        if radius_near is not None:
+            bend_note += (
+                f" (a bend at node {node} - radius {radius_near:.0f} mm, "
+                f"{deflect_near:.1f}° turn - needs {tangent_near:.0f} mm "
+                f"clearance from that end)")
+
+        if valid_min > valid_max:
+            # Bends at both ends (or one very close, tight-radius bend) eat
+            # up the entire element - there is no valid placement zone on it
+            # at all, regardless of what spacing was requested. Skipped just
+            # like a rigid element.
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has no valid placement zone at "
+                f"all{bend_note} on a {L:.0f} mm element — skipped toward "
+                f"the next element.")
+            remaining -= L
+            node = far_node
+            continue
+
+        if remaining > valid_max:
             # Not enough room here for the full requested spacing - whether
             # because the element itself is short, a bend eats into it, or
             # both. Per direct instruction: never settle for less than
             # requested on this element - walk further out and keep
             # looking, exactly like a rigid element/reducer/expansion joint.
             warnings.append(
-                f"Element {e.n_from}→{e.n_to} has only {max(usable, 0):.0f} mm "
+                f"Element {e.n_from}→{e.n_to} has only {max(valid_max, 0):.0f} mm "
                 f"usable{bend_note or f' (element length {L:.0f} mm)'}, less "
                 f"than the requested {remaining:.0f} mm spacing — skipped "
                 f"toward the next element.")
@@ -506,19 +572,31 @@ def _walk_to_flexible_element(
             node = far_node
             continue
 
-        if remaining < 0:
-            # The elements skipped on the way out here (rigid/reducer/expjt,
-            # or a bend consuming a whole element) already used up more
-            # length than the requested spacing - the true target point
-            # falls inside ground that can't carry a displacement. Clamp to
-            # the start of this element (as close as physically possible)
-            # rather than feeding _split_block a negative spacing.
-            warnings.append(
-                f"Element {e.n_from}→{e.n_to}: the requested spacing was "
-                f"entirely used up by skipped rigid/reducer/expansion-joint/"
-                f"vertical/bend elements before reaching here - placed at "
-                f"the start of this element instead.")
-            remaining = 0.0
+        if remaining < valid_min:
+            # The elements skipped on the way out here (rigid/reducer/expjt/
+            # vertical, or a bend consuming a whole element) already used up
+            # more length than the requested spacing, OR a bend right at
+            # `node` itself needs its own tangent clearance - either way the
+            # true target point falls somewhere that can't carry a
+            # displacement. Clamp to the closest VALID point (the near
+            # bend's own tangent clearance, or the very start of this
+            # element if there's no near bend) rather than feeding
+            # _split_block a spacing that lands inside a bend or goes
+            # negative.
+            if tangent_near > 0:
+                warnings.append(
+                    f"Element {e.n_from}→{e.n_to}: a bend at node {node} "
+                    f"needs {tangent_near:.0f} mm clearance from this end - "
+                    f"placed there instead of the requested "
+                    f"{remaining:.0f} mm (which would have landed inside "
+                    f"the bend).")
+            else:
+                warnings.append(
+                    f"Element {e.n_from}→{e.n_to}: the requested spacing was "
+                    f"entirely used up by skipped rigid/reducer/expansion-"
+                    f"joint/vertical/bend elements before reaching here - "
+                    f"placed at the start of this element instead.")
+            remaining = valid_min
 
         return e, remaining, far_node
 

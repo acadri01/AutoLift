@@ -301,3 +301,52 @@ running status log Claude appends to (skim this from mobile)
   runs and three rigid elements - correctly skipped all of them and
   landed on genuinely horizontal elements on both sides, patched file
   re-parses cleanly, NUMELT matches.
+- 2026-09-09: Real-machine PR-comment report, with warning-dialog and
+  isometric screenshots: "this caused a bend to break, exactly as we
+  discussed it shouldn't." Root cause was a real, pre-existing
+  architectural gap in `_walk_to_flexible_element` - not something
+  introduced by the vertical-skip change, just newly exposed by it landing
+  the walk in more real scenarios than before. The bend-clearance
+  calculation only ever checked a bend at the FAR end of a candidate
+  element (the corner being walked toward) - never at its NEAR end (the
+  node the walk just arrived at, typically the far end of whatever was
+  skipped the hop before). When the fallback "requested spacing exhausted,
+  clamp to the start of this element" path fired, it clamped to distance
+  0 unconditionally, even when that exact point (`node`) was itself a bend
+  corner needing its own tangent clearance from that side - placing the
+  displacement inside the bend's own tangent zone.
+  Fixed by computing tangent clearance at BOTH ends of every candidate
+  element: added `_bend_tangent_at_node()` (factored out of the existing
+  far-node calculation, reused for both), giving `valid_min` (a near
+  bend's own minimum clearance, 0 if none) and `valid_max` (unchanged -
+  full length minus a far bend's tangent, if any). Three cases instead of
+  two: `valid_min > valid_max` (bends at both ends, or one very tight one,
+  leave no valid zone on the element at all - skip it entirely regardless
+  of what was requested, new); `remaining > valid_max` (too far in for
+  this element - walk further, same as before, just renamed from
+  `usable`); `remaining < valid_min` (would land inside a near bend, or
+  the whole element run was already used up by skips - clamp UP to
+  `valid_min`, generalizing the old "clamp to 0" fallback, which was
+  really just the `valid_min == 0` case all along). Warnings now name
+  which end's bend is responsible when a near-clearance clamp fires,
+  distinct from the old generic "entirely used up by skips" message
+  (still used when there's no near bend involved).
+  Verified: `py_compile` clean; re-ran the full scratch suite after fixing
+  two OLD test fixtures whose "next" element happened to share a bend
+  corner with the one being walked past (previously invisible to the near
+  check, now correctly caught - confirmed via hand deflection/tangent
+  calculation, not just re-asserted) - not a regression, the fix working
+  as intended on cases the suite already had; added 2 new tests
+  reproducing the exact reported scenario (support -> far-bend-too-short
+  skip -> two vertical skips -> lands next to a shared bend corner ->
+  correctly clamps to that bend's own 200mm tangent, not 0) and a
+  combined-both-ends case (neither bend's tangent alone exceeds the
+  element's length, but together they leave no valid zone - skipped
+  regardless of how small the request is); all 20 checks passing. Re-ran
+  the real IZUP=1 `44002.cii` round trip (node 35, same as the prior
+  vertical-skip verification) - it turns out this exact file already has
+  two of the affected real bend corners (nodes 30 and 80, radius 381mm,
+  the same bends already used for earlier verification work): confirms
+  the OLD code would have placed a displacement directly on those bend
+  corners on a real file, and the fix now correctly clamps 381mm clear of
+  each instead. File still re-parses cleanly, NUMELT matches.
