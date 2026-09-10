@@ -99,11 +99,15 @@ def main() -> int:
         app = DocumenterApp(db, ("wo", wo_id))
 
     else:
-        # not recognisable as either - treat as an empty work order so the
-        # user still gets a window rather than a silent exit
-        wo_no = os.path.basename(folder.rstrip("\\/"))
-        wo_id = db.get_or_create_wo(wo_no, folder)
-        app = DocumenterApp(db, ("wo", wo_id))
+        # not recognisable as either a line or a work order - open at the
+        # tree root so the user still gets a window rather than a silent
+        # exit, but WITHOUT creating a DB record for this folder. This used
+        # to call get_or_create_wo(basename(folder), folder), which meant
+        # launching from an unrelated folder (the AutoLift install folder
+        # itself, or a container folder that merely holds several real work
+        # orders) silently created a phantom "work order" in the tree named
+        # after that folder - reported 2026-09-09.
+        app = DocumenterApp(db, ("root",))
 
     app.mainloop()
     db.close()

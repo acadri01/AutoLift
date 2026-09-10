@@ -14,80 +14,27 @@ Wrapper around Caesar II's iecho.exe for two distinct operations:
         Returns the output .C2 Path on success.
         Raises RuntimeError on failure.
 
-iecho.exe path resolution order:
-    1. IECHO_PATH environment variable
-    2. IECHO_SEARCH_PATHS list (hardcoded, covers common install locations)
+iecho.exe path resolution (now shared with any other CAESAR-tool lookup
+via tool_discovery.py):
+    1. lift_case_config.ini's [iecho] path
+    2. IECHO_PATH environment variable
+    3. IECHO_SEARCH_PATHS list (hardcoded, covers common install locations)
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+
+from tool_discovery import find_iecho
 
 
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
-
-IECHO_SEARCH_PATHS: list[Path] = [
-    Path(r"C:\Program Files (x86)\Intergraph CAS\CAESAR II v.15.01\iecho.exe"),
-    Path(r"C:\Program Files\Intergraph CAS\CAESAR II v.15.01\iecho.exe"),
-    Path(r"C:\Program Files (x86)\Hexagon\CAESAR II v.15.01\iecho.exe"),
-    Path(r"C:\Program Files\Hexagon\CAESAR II v.15.01\iecho.exe"),
-    Path(r"C:\Program Files (x86)\Intergraph CAS\CAESAR II v.15\iecho.exe"),
-    Path(r"C:\Program Files\Intergraph CAS\CAESAR II v.15\iecho.exe"),
-    Path(r"C:\Program Files (x86)\Hexagon\CAESAR II v.15\iecho.exe"),
-    Path(r"C:\Program Files\Hexagon\CAESAR II v.15\iecho.exe"),
-    Path(r"C:\Program Files (x86)\Intergraph CAS\CAESAR II v.14\iecho.exe"),
-    Path(r"C:\Program Files (x86)\Intergraph CAS\CAESAR II v.13\iecho.exe"),
-]
-
-_resolved: Optional[Path] = None
-
-
-def find_iecho() -> Path:
-    """
-    Return the iecho.exe path.
-    Caches the result after first successful resolution.
-    Raises FileNotFoundError if not found anywhere.
-    """
-    global _resolved
-    if _resolved is not None:
-        return _resolved
-
-    # 0. Config file explicit path
-    try:
-        from config import iecho_path as cfg_iecho_path
-        cfg = cfg_iecho_path()
-        if cfg:
-            p = Path(cfg)
-            if p.exists():
-                _resolved = p
-                return _resolved
-    except ImportError:
-        pass
-
-    # 1. Environment variable override
-    env = os.environ.get("IECHO_PATH")
-    if env:
-        p = Path(env)
-        if p.exists():
-            _resolved = p
-            return _resolved
-
-    # 2. Search list
-    for candidate in IECHO_SEARCH_PATHS:
-        if candidate.exists():
-            _resolved = candidate
-            return _resolved
-
-    raise FileNotFoundError(
-        "iecho.exe not found.\n\n"
-        "Set the path in lift_case_config.ini, set the IECHO_PATH environment\n"
-        "variable, or verify your CAESAR II installation directory."
-    )
+#
+# find_iecho() now lives in tool_discovery.py, re-exported here so every
+# existing `from iecho import find_iecho` caller keeps working unchanged.
 
 
 # ---------------------------------------------------------------------------

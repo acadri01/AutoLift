@@ -25,13 +25,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import List, Optional
 
 import lift_meta
 
-from iecho import launch_for_export, convert_cii_to_c2, find_iecho, cii_is_current
+from iecho import launch_for_export, convert_cii_to_c2, cii_is_current
+from tool_discovery import probe_capabilities
 from neutral_reader import read_neutral_file, read_restrained_nodes
 from neutral_patcher import patch_model
 from ui_dialogs import (
@@ -82,19 +82,32 @@ def _build_new_name(prefix: str, nodes: List[str], folder: Path, ext: str) -> st
 # Main entry
 # ---------------------------------------------------------------------------
 
-def run(initial_folder: Optional[Path] = None) -> None:
+def run(initial_folder: Optional[Path] = None) -> bool:
     """
     Execute the full lift case creation workflow.
 
     initial_folder : from %V context menu arg, or None to prompt.
+
+    Returns True if the workflow completed or was cleanly cancelled by the
+    user (nothing left to report — every path already showed its own
+    dialog), False if it stopped on an error (also already shown to the
+    user via show_message). Never calls sys.exit() itself: this makes the
+    function safe to call in-process from a host window (Milestone 4)
+    without killing the whole app on cancel/error. The standalone entry
+    point (create_lift_case.main(), see its __main__ block) is what
+    translates this into a process exit code, preserving today's exit(0)
+    on cancel / exit(1) on error behaviour for anyone invoking the exe
+    directly from Explorer's context menu.
     """
 
-    # ── Verify iecho is available before touching anything ───────────────────
-    try:
-        find_iecho()
-    except FileNotFoundError as e:
-        show_message("iecho not found", str(e), error=True)
-        sys.exit(1)
+    # ── Verify CAESAR tooling is available before touching anything ─────────
+    # Every CAESAR-driving action below (launch_for_export, convert_cii_to_c2)
+    # depends on iecho.exe — gate the whole workflow on one capability probe
+    # up front instead of letting it fail deep inside step 5 or 8.
+    report = probe_capabilities()
+    if not report.iecho_available:
+        show_message("iecho not found", report.reason, error=True)
+        return False
 
     # ── Step 1: Resolve folder ────────────────────────────────────────────────
     # If a valid folder was passed from the context menu (%V) and it already
@@ -107,18 +120,18 @@ def run(initial_folder: Optional[Path] = None) -> None:
             # Folder exists but has no _MAIN — show dialog so user can correct
             folder = prompt_folder(initial_folder)
             if folder is None:
-                sys.exit(0)
+                return True
     else:
         folder = prompt_folder(initial_folder)
         if folder is None:
-            sys.exit(0)
+            return True
 
     main_input = _find_main_input(folder)
     if main_input is None:
         show_message("Lift Creation",
                      f"No *_MAIN.C2 or *_MAIN._A file found in:\n{folder}",
                      error=True)
-        sys.exit(1)
+        return False
 
     prefix = re.sub(r'_MAIN\.(C2|_A)$', '', main_input.name, flags=re.IGNORECASE)
     ext    = _c2_ext(main_input)
@@ -127,14 +140,14 @@ def run(initial_folder: Optional[Path] = None) -> None:
     # Nothing has been written to disk yet — cancellation is clean.
     nodes = prompt_nodes(prefix)
     if nodes is None:
-        sys.exit(0)
+        return True
 
     # ── Step 3: Prompt for per-node parameters ────────────────────────────────
     params: Optional[LiftParams] = None
     if nodes:
         params = prompt_lift_params(prefix, nodes)
         if params is None:
-            sys.exit(0)
+            return True
 
     # ── Step 4: Copy _MAIN.C2 → new .C2 ─────────────────────────────────────
     # Copying the .C2 (not the .CII) preserves load cases.
@@ -145,14 +158,14 @@ def run(initial_folder: Optional[Path] = None) -> None:
         show_message("Lift Creation",
                      f"Target file already exists:\n{new_c2_name}\n\n"
                      f"No changes made.", error=True)
-        sys.exit(1)
+        return False
 
     shutil.copy2(main_input, new_c2)
 
     # Ln fallback — copy only, no patching
     if not nodes:
         show_message("Lift Creation", f"Created (copy only):\n{new_c2_name}")
-        return
+        return True
 
     # ── Step 5: Interactive iecho export → new .CII ──────────────────────────
     # We export from the NEW .C2 copy so the CII name matches the copy.
@@ -187,7 +200,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
             f"The copied input file has been preserved:\n  {new_c2_name}",
             error=True,
         )
-        sys.exit(1)
+        return False
 
     # ── Step 6: Validate nodes against restraints in the exported CII ─────────
     # Now that we have the CII, check that every entered node is restrained.
@@ -209,7 +222,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
                 warning_yesno=True,
             )
             if not proceed:
-                sys.exit(0)
+                return True
     except Exception:
         pass   # validation is best-effort; never block the workflow
 
@@ -220,7 +233,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
         show_message("Lift Creation",
                      f"Failed to read neutral file:\n{new_cii.name}\n\n{e}",
                      error=True)
-        sys.exit(1)
+        return False
 
     def _override_callback(**kwargs):
         return prompt_element_override(**kwargs)
@@ -235,7 +248,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
     except Exception as e:
         show_message("Lift Creation",
                      f"Patching failed:\n{e}", error=True)
-        sys.exit(1)
+        return False
 
     new_cii.write_text("".join(result.modified_lines), encoding="utf-8")
 
@@ -258,7 +271,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
             f"Note: {new_c2_name} still reflects the unpatched model.",
             error=True,
         )
-        sys.exit(1)
+        return False
 
     # ── Step 8b: Write documenter sidecar (best-effort) ──────────────────────
     # Feeds the Lift Mark-up Documenter. Never allowed to break lift creation.
@@ -282,6 +295,7 @@ def run(initial_folder: Optional[Path] = None) -> None:
         f"  {new_cii.name}\n"
         f"{disp_summary}",
     )
+    return True
 
 # ---------------------------------------------------------------------------
 # Documenter handshake

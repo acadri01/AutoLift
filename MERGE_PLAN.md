@@ -1,10 +1,11 @@
 # MERGE_PLAN — LiftNeutralFileModifier + MarkUpGen → AutoLift
 
-> STATUS: descoped by the user after this plan was written. Everything below
-> (in-process GUI refactor, callable-stage Creator, workflow state-machine
-> changes) is PAUSED, not abandoned — kept here as the documented next phase,
-> but nothing in it is being built right now. See "Phase 0" immediately below
-> for what is actually being built instead.
+> STATUS: Phase 0 below is shipped. The fuller merge (in-process GUI
+> refactor, callable-stage Creator) is no longer paused — it's back in
+> scope, sequenced as SPEC.md's Milestones 2–6 (SPEC.md's milestone list is
+> the authoritative, current ordering; the "Phase 1+" section below is the
+> detailed design those milestones build from, kept for the reasoning and
+> the concrete refactor notes, not for re-litigating the order).
 
 ## Phase 0 (current, in progress) — packaging only, zero behaviour change
 
@@ -13,8 +14,8 @@ distributable .exe that also self-installs both context-menu verbs, with
 **no refactoring of the GUI or anything else** — both programs must keep
 functioning exactly as they do today, just packaged together.
 
-What this means concretely, and what it explicitly rules out (everything
-under "Phase 1+" below, until asked for again):
+What this meant concretely, and what it ruled out at the time — since
+picked back up as SPEC.md's Milestones 2–6 (detail below under "Phase 1+"):
 
 - `src/creator/` and `src/documenter/` hold the two programs' original
   files, copied in unmodified (byte-identical — verified with `diff` before
@@ -39,18 +40,19 @@ under "Phase 1+" below, until asked for again):
 - `autolift.spec` (new) replaces `create_lift_case.spec` and
   `lift_documenter.spec` with one PyInstaller build producing one `AutoLift.exe`.
 
-Not part of Phase 0 — deferred to Phase 1+ below, unchanged from before:
-`ui_dialogs.py` staying `tk.Tk()`-per-dialog (not `Toplevel`), no in-process
-"Create lift case" action inside `DocumenterApp`, no workflow state-machine
-changes, no zero-touch DB discovery logic. The two programs remain two
-separate, independent code paths that happen to ship in one exe.
+Not part of Phase 0 itself — this is exactly what Milestones 2–6 in SPEC.md
+now build: `ui_dialogs.py` staying `tk.Tk()`-per-dialog (not `Toplevel`), no
+in-process "Create lift case" action inside `DocumenterApp`, no zero-touch
+DB discovery logic. Until those milestones land, the two programs remain
+two separate, independent code paths that happen to ship in one exe.
 
 ---
 
-## Phase 1+ (paused — the fuller merge, not being built right now)
+## Phase 1+ (active — detailed design behind SPEC.md's Milestones 2–6)
 
-Below is the plan as originally converged on, before the user descoped to
-Phase 0. Restart here if/when asked to continue the deeper merge.
+Below is the plan as originally converged on. SPEC.md's Milestones section
+is the authoritative ordering and current status; this section is the
+reasoning and refactor detail those milestones are built from.
 
 ## Goal (unchanged, firm)
 One self-contained, easily-downloadable Windows program, launched from the
