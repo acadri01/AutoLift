@@ -375,3 +375,22 @@ running status log Claude appends to (skim this from mobile)
   bytes directly (not just the function's return value) and confirmed the
   10mm displacement value lands at DOF index 14 (DZ of vector 3), with
   index 13 (DY) still FREE.
+- 2026-09-14: Real-machine report (with a CAESAR "Between Element Nodes"
+  measurement) surfaces a deeper issue than the previous two placement
+  bugs: `_walk_to_flexible_element` has always measured "distance from
+  support" as cumulative element-length subtraction, which only equals
+  true straight-line distance when the walked path never changes
+  direction. Now that walking through vertical risers and past bends is
+  routine (per the vertical-skip and near-bend fixes), that assumption
+  breaks down - in the reported case, a 750mm request produced a walked
+  path length of 1509.7mm, a straight-line 3D distance of 1384.49mm, and a
+  horizontal-plane distance of only 495.6mm, depending on which "distance
+  from support" is meant. Verified the user's own arithmetic
+  (sqrt(309.12^2+387.39^2) = 495.6, matching their report) and confirmed
+  the three figures are all genuinely different (not a measurement error
+  on their end). This is a requirement-definition question, not an
+  implementation bug in settled behaviour, so per CLAUDE.md it's logged as
+  a new "Stop-and-ask" in QUESTIONS.md with three concrete options put to
+  the user, rather than guessed at - the placement algorithm has now had
+  three rounds of user-reported issues and a wrong guess here would cost
+  more time than asking once. No code changed.

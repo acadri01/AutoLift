@@ -175,6 +175,55 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
+## Stop-and-ask (blocking - "distance from support" definition, 2026-09-14)
+- **What should "750 mm from the support" mean once the walk crosses a
+  direction change (a vertical riser, a bend)?** Real-machine report, with
+  a CAESAR "Between Element Nodes" measurement: `_walk_to_flexible_element`
+  has always measured "distance from support" as the SUM OF ELEMENT
+  LENGTHS walked (`remaining -= _element_length(e)` at every hop) - this
+  exactly equals straight-line distance only when the walked path is
+  dead straight. Once the path changes direction - which the vertical-skip
+  and near-bend fixes made routine rather than exceptional - cumulative
+  path length and actual straight-line distance from the support diverge,
+  sometimes a lot: in the reported case (support 1450, requested 750mm,
+  walk skips a too-short bend-adjacent element, two vertical risers, then
+  clamps 152mm past a bend at node 1540), the walked path length is
+  1509.7mm, CAESAR's straight-line 3D distance between the support and the
+  resulting lift node is 1384.49mm, and the horizontal-plane distance
+  (ignoring the vertical rise) is only 495.6mm - three genuinely different
+  numbers, none of them 750mm. The user computed the horizontal figure
+  themselves and flagged it as clearly wrong; they also called the
+  resulting placement (152mm past a bend) "strange" on its own terms,
+  independent of which distance definition is used.
+  - Not fixed here: this is a genuine requirement ambiguity, not an
+    implementation bug in a design that's otherwise settled - CLAUDE.md's
+    stop-and-ask criteria applies squarely ("branches lead to materially
+    different products"). Guessing wrong a third time on the placement
+    algorithm wastes more of the user's time than asking once.
+  - Options put to the user (see the PR reply): (A) true 3D straight-line
+    distance from the support to the lift point, which would need a real
+    geometric solve (distance from a fixed point to a point moving along a
+    line segment is quadratic in the segment parameter) rather than the
+    current running-subtraction bookkeeping; (B) horizontal-plane-only
+    distance (matches the exact calculation the user did, and is arguably
+    the more physically relevant one for rigging clearance); (C) a more
+    conservative strategy change - stop walking through direction changes
+    at all once the immediate colinear run is exhausted, and fall back to
+    the override dialog instead of mechanically hunting for a
+    mathematically-valid-but-awkward spot several hops away.
+  - Concrete next step once a definition is chosen: (A) or (B) both
+    replace the `remaining -= length` running subtraction in
+    `_walk_to_flexible_element` with an actual geometric check - track the
+    support node's absolute position (from the model's element chain,
+    summing dx/dy/dz from the original support node) and, for each
+    candidate element, solve for the point along it whose distance (3D for
+    A, projected onto the horizontal plane for B) from that absolute
+    position equals `node_spacing`, walking further if the element's own
+    span of achievable distances doesn't reach it. (C) is a much smaller
+    change - stop `_walk_to_flexible_element` after the FIRST skip that
+    isn't collinear with the original element's direction, and route
+    straight to `_handle_short`/the override dialog from there.
+
 ## Stop-and-ask (resolved 2026-09-09 - user confirmed, fix implemented)
 - **RESOLVED**: user replied "You may implement this izup to determine
   whether a vertical section is determined by a y or z section" - read as
