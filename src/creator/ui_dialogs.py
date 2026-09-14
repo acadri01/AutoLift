@@ -23,6 +23,12 @@ CiiPollingDialog        Shown while waiting for the user to export a CII file
                         Terminates the iecho process on both success and abort.
                         Returns True (file ready) or False (user aborted).
 
+MainExpandedDialog      Shown when a *_MAIN._A file exists with no *_MAIN.C2 -
+                        CAESAR II (prepip.exe) has the model open. Tells the
+                        user how to collapse it back and polls for *_MAIN.C2
+                        to reappear. No timeout.
+                        Returns True (ready) or False (user aborted).
+
 ElementOverrideDialog   Shown only when a proposed element break has a geometry
                         problem (no element reaches the requested horizontal-
                         plane distance). Only asks for the side(s) actually
@@ -34,6 +40,7 @@ ElementOverrideDialog   Shown only when a proposed element break has a geometry
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 import tkinter as tk
@@ -721,6 +728,94 @@ class CiiPollingDialog:
 
 
 # ---------------------------------------------------------------------------
+# MainExpandedDialog
+# ---------------------------------------------------------------------------
+
+class MainExpandedDialog:
+    """
+    Shown when a folder has a *_MAIN._A file but no *_MAIN.C2 - CAESAR II
+    (prepip.exe) currently has the model open, "expanding" it, and the
+    ._A alone doesn't carry all the information a lift case needs (per
+    direct instruction, 2026-09-14). Polls for a *_MAIN.C2 file to
+    reappear (the user collapsing it back), closing automatically once
+    one does. No timeout - unlike CiiPollingDialog this isn't bound to a
+    subprocess AutoLift itself launched, and the user may legitimately be
+    away from CAESAR II for a while before coming back to collapse it.
+
+    Phase 1 only (this dialog): tell the user how to collapse the file
+    back (close CAESAR II entirely, or File > Open / Ctrl+O in prepip.exe)
+    and wait. Automating the collapse itself is Phase 2, explicitly not
+    built yet - see lift_case_builder.py's module docstring.
+
+    result : True  — a *_MAIN.C2 file appeared, safe to proceed
+             False — aborted
+    """
+
+    POLL_INTERVAL_MS = 1000
+    _MAIN_C2_RE = re.compile(r'.+_MAIN\.C2$', re.IGNORECASE)
+
+    def __init__(self, folder: Path, parent: Optional[tk.Misc] = None):
+        self.folder = folder
+        self.result: bool = False
+
+        self.root = _new_dialog_root(parent)
+        self.root.title("CAESAR File Open")
+        self.root.resizable(False, False)
+        self.root.protocol("WM_DELETE_WINDOW", self._abort)
+
+        self._build_ui()
+        _center(self.root)
+        _focus_window(self.root)
+        self._poll()
+        _run_modal(self.root, parent)
+
+    def _build_ui(self):
+        pad = dict(padx=16, pady=8)
+
+        _label(self.root,
+               "The model file is currently open in CAESAR II",
+               bold=True, wraplength=420).grid(row=0, column=0, sticky="w", **pad)
+
+        _label(self.root,
+               f"A *_MAIN._A file was found but no *_MAIN.C2 in:\n{self.folder}\n\n"
+               f"This means CAESAR II (prepip.exe) currently has the model open, "
+               f"which doesn't carry all the information a lift case needs.\n\n"
+               f"Please either:\n"
+               f"  •  Close CAESAR II entirely, or\n"
+               f"  •  In prepip.exe, use File → Open (Ctrl+O) to collapse the "
+               f"file back\n\n"
+               f"This will continue automatically once a *_MAIN.C2 file reappears.",
+               wraplength=420, justify="left").grid(
+            row=1, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        self._status_var = tk.StringVar(value="Waiting...")
+        tk.Label(self.root, textvariable=self._status_var,
+                font=("Segoe UI", 9), fg="#0055aa",
+                wraplength=420, anchor="w").grid(
+            row=2, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        btn_frame = tk.Frame(self.root)
+        btn_frame.grid(row=3, column=0, pady=(4, 12))
+        _btn(btn_frame, "Abort", self._abort, width=12).pack()
+
+    def _poll(self):
+        try:
+            for f in self.folder.iterdir():
+                if self._MAIN_C2_RE.match(f.name):
+                    self._status_var.set(f"✓  Found: {f.name}")
+                    self.result = True
+                    self.root.after(600, self.root.destroy)
+                    return
+        except OSError:
+            pass
+        self.root.after(self.POLL_INTERVAL_MS, self._poll)
+
+    def _abort(self):
+        self.result = False
+        self.root.destroy()
+
+
+# ---------------------------------------------------------------------------
 # ElementOverrideDialog
 # ---------------------------------------------------------------------------
 
@@ -901,6 +996,13 @@ def poll_for_cii(
 ) -> bool:
     """Show CiiPollingDialog. Returns True when file is ready."""
     d = CiiPollingDialog(cii_path, reference_mtime, c2_name, proc, parent=parent)
+    return d.result
+
+
+def prompt_main_expanded(folder: Path, parent: Optional[tk.Misc] = None) -> bool:
+    """Show MainExpandedDialog. Returns True once a *_MAIN.C2 file appears
+    (the user collapsed CAESAR's expanded file back), False if aborted."""
+    d = MainExpandedDialog(folder, parent=parent)
     return d.result
 
 

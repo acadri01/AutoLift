@@ -6,6 +6,11 @@ Orchestrator for the Full .C2 Lift Creation workflow.
 Steps
 -----
 1. Resolve folder (from %V arg, or FolderSelectDialog)
+1b. If only a *_MAIN._A file exists (no *_MAIN.C2) - CAESAR II/prepip.exe
+    currently has the model open, "expanding" it - stop and tell the user
+    how to collapse it back, polling for *_MAIN.C2 to reappear before
+    continuing. A ._A-only model doesn't carry all the information a
+    lift case needs (added 2026-09-14; see prompt_main_expanded).
 2. Prompt for node count and node numbers
 3. Prompt for per-node spacing and displacement (750/10 defaults)
 4. Copy _MAIN.C2 → {prefix}_N10-N20.C2  (preserves load cases)
@@ -41,6 +46,7 @@ from ui_dialogs import (
     prompt_lift_params,
     poll_for_cii,
     prompt_element_override,
+    prompt_main_expanded,
     show_message,
     LiftParams,
 )
@@ -141,6 +147,28 @@ def run(initial_folder: Optional[Path] = None,
                      f"No *_MAIN.C2 or *_MAIN._A file found in:\n{folder}",
                      error=True)
         return False
+
+    # ── Step 1b: refuse to build from an expanded (._A-only) main file ──────
+    # A *_MAIN._A with no *_MAIN.C2 alongside it means CAESAR II (prepip.exe)
+    # currently has the model open - the model is "expanded" and the ._A
+    # alone doesn't carry all the information a lift case needs (per direct
+    # instruction, 2026-09-14: using it produces an incorrect lift case,
+    # silently). _find_main_input() always prefers a .C2 match when one
+    # exists, so reaching a ._A match here means none does. Phase 1 (this):
+    # detect it, tell the user how to collapse the file back (close CAESAR
+    # II entirely, or File > Open / Ctrl+O in prepip.exe), and poll for
+    # *_MAIN.C2 to reappear before proceeding - never automate the
+    # collapse itself yet (Phase 2, explicitly deferred until this
+    # fallback is confirmed working).
+    if main_input.suffix.upper() == "._A":
+        if not prompt_main_expanded(folder, parent=parent):
+            return True   # aborted - same "cleanly cancelled" contract as the other early-outs
+        main_input = _find_main_input(folder)
+        if main_input is None or main_input.suffix.upper() == "._A":
+            show_message("Lift Creation",
+                         f"No *_MAIN.C2 file found in:\n{folder}",
+                         error=True)
+            return False
 
     prefix = re.sub(r'_MAIN\.(C2|_A)$', '', main_input.name, flags=re.IGNORECASE)
     ext    = _c2_ext(main_input)

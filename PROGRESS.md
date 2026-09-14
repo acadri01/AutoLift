@@ -629,3 +629,69 @@ running status log Claude appends to (skim this from mobile)
   one the template already has. No code changed yet - posted an updated
   to-do list on the PR per the user's explicit request, still awaiting
   confirmation before implementing any of it.
+
+- 2026-09-14: Built all 5 items from the confirmed WO/Line/case-creation
+  to-do list (both blockers answered on the PR: the FINALIZATION folder
+  is a new WO-level concept, sibling to line folders; button labels use
+  Title Case).
+  - `line_layout.py`: added `WO_FINALIZATION_DIR`/`wo_finalization_dir()`
+    (a new, WO-level folder distinct from the existing per-line
+    `FINAL_DIR`/`final_dir()`), documented in the module's Structure
+    diagram.
+  - `src/documenter/templates/Add_New_Line/00_CII/`: the real template
+    files committed into the repo (byte-verified against the user's
+    upload via md5sum), plus a README explaining what it's for.
+    `autolift.spec` bundles it via `datas` and lists `line_new` in
+    hiddenimports.
+  - New `src/documenter/line_new.py`: `create_line(wo_folder, line_no)`
+    copies the bundled template into `<wo_folder>/<line_no>/00_CII`,
+    renaming the two placeholder filenames, and creates `01_REFS`/
+    `02_FINALISATION` directly via `line_layout.py`'s own constants
+    (no empty directories carried in the template itself, since git
+    doesn't track those and it avoids a stray `.gitkeep` leaking into
+    every new line).
+  - `app_ui.py`: one toolbar button (`_create_btn`) whose label/action
+    follow the tree selection (`_update_create_button`, called from
+    `_on_select`) - "New Work Order" at the root, "Add New Line" in a
+    work order, "New Lift Case" in a line or a case within one.
+    `_create_work_order()` infers the right parent folder from existing
+    work orders' own folders (majority vote; falls back to a folder
+    picker when there are none yet), creates `<parent>/<WO>/FINALIZATION`,
+    registers in the DB, refreshes, and selects it. `_create_line()`
+    calls `line_new.create_line()` and does the same DB/refresh/select
+    dance. Removed the right-click "Create lift case..." entry (Milestone
+    4) - the button replaces it. Also fixed a real bug caught while
+    writing this: `filedialog` was used in the new WO-creation fallback
+    but was never imported at module level - added it.
+  - `line_ui.py`: removed the per-line "Sync cases" button and its
+    `sync_cases()` method - the overall Refresh button's
+    `_rescan_from_disk()` already re-ingests every currently-loaded
+    line's sidecars, a strict superset.
+  - `ui_dialogs.py`/`lift_case_builder.py`: new `MainExpandedDialog`/
+    `prompt_main_expanded()` (Phase 1 of the CAESAR `.C2`/`._A` fix) -
+    when `_find_main_input()` would otherwise silently accept a
+    `*_MAIN._A` file with no `*_MAIN.C2` alongside it (meaning
+    prepip.exe has the model open and expanded), the workflow now stops,
+    tells the user to close CAESAR II or use File > Open (Ctrl+O) to
+    collapse it back, and polls (no timeout) for `*_MAIN.C2` to reappear
+    before continuing. Phase 2 (automating the collapse itself) explicitly
+    NOT built, per the user's own instruction to get the fallback working
+    first.
+  Verified: `py_compile` clean across every touched file; headless tests
+  (this container has no real `tkinter`) against the REAL functions for
+  every piece - `_update_create_button`'s context detection for every
+  tree-node kind (root/wo/line/case/iso), `_infer_wo_parent_dir`'s
+  majority-vote logic, `_create_work_order`/`_create_line` end-to-end
+  against a real filesystem (folder creation, FINALIZATION subfolder,
+  duplicate-number rejection, missing-WO-folder handling, the
+  no-existing-WOs folder-picker fallback and its cancellation),
+  `line_new.create_line()` against the real bundled template (byte-exact
+  file copies, correct renames, both error paths), and the CAESAR
+  expansion detection's three real scenarios (successful collapse
+  proceeds normally, abort cleanly cancels before any further prompt, a
+  normal `.C2`-only folder never triggers the new dialog at all). Re-ran
+  every earlier regression suite from this session (bend-logic geometry,
+  AppData/DB migration, Milestone-4 parent-threading) - all still pass.
+  **Still unverified** (needs a real Windows/Tkinter session): actually
+  clicking through the new toolbar button and the CAESAR-open detection
+  dialog in the real app - flagged in TESTING.md.

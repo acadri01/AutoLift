@@ -81,8 +81,6 @@ class LinePanel(ttk.Frame):
         ttk.Button(top, text="Upload iso...", command=self.upload_iso).pack(side="right")
         ttk.Button(top, text="Add existing case...",
                    command=self.add_existing_case).pack(side="right", padx=PAD)
-        ttk.Button(top, text="Sync cases",
-                   command=self.sync_cases).pack(side="right", padx=(0, PAD))
 
         self._cv = tk.Canvas(self, highlightthickness=0)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._cv.yview)
@@ -561,26 +559,6 @@ class LinePanel(ttk.Frame):
     # ------------------------------------------------------------------
     # Legacy case adoption + case data editing (sidecar-backed)
     # ------------------------------------------------------------------
-    def sync_cases(self):
-        """Ingest any newly generated cases for this line from their
-        *_liftmeta.json sidecars, without reopening the app. This is the same
-        ingest that runs when the app is opened from the line folder."""
-        res = self.db.ingest_sidecars(self.wo_id, self.folder)
-        added, updated, failed = res["added"], res["updated"], res["failed"]
-        if added or updated or failed:
-            self.app.reload_line(self.line_id)     # refresh the tree leaves
-            self.show_overview()                   # refresh the in-panel preview
-            parts = []
-            if added:
-                parts.append(f"{added} added")
-            if updated:
-                parts.append(f"{updated} updated")
-            if failed:
-                parts.append(f"{failed} failed")
-            self._say("Cases synced: " + ", ".join(parts) + ".")
-        else:
-            self._say("No case sidecars found for this line.")
-
     def add_existing_case(self):
         """Detect unregistered .C2 files, complete their data, write sidecar."""
         known = [c["case_name"] for c in self.db.cases_for_line(self.line_id)]

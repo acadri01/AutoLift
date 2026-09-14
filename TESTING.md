@@ -202,6 +202,43 @@ reporting.
      (open a line, view a case) rather than just checking the folder
      exists.
 
+6. **NEW — one toolbar button for New Work Order / Add New Line / New
+   Lift Case.** The left panel now has a single button, in the same spot
+   next to "Refresh"/"View archive", whose label changes with what's
+   selected in the tree:
+   - Select **"Work Orders"** (the root) → button reads **"New Work
+     Order"**. Click it, type a WO number: it should land in the same
+     parent folder as your existing work orders, with a new
+     `FINALIZATION` folder inside it (sibling to the line-number
+     folders), and the new WO should appear in the tree, selected.
+   - Select a **work order** → button reads **"Add New Line"**. Click it,
+     type a line number: it should create `<WO>\<Line>\00_CII` (with
+     your real starter files inside, correctly renamed to the new line
+     number — check `<Line>_MAIN.C2` and `<Line>_Flange_Leakage_TRNC.xlsm`
+     both exist), plus empty `01_REFS` and `02_FINALISATION` folders, and
+     the new line should appear in the tree, selected.
+   - Select a **line** (or a case inside one) → button reads **"New Lift
+     Case"** and runs the same in-process workflow as before (this part
+     hasn't changed, just how you get to it — the right-click menu entry
+     is gone, this button is now the only way in).
+   - Try it on a brand-new database with **no existing work orders at
+     all** — "New Work Order" should fall back to asking you to pick a
+     folder (since there's nothing yet to infer a location from), rather
+     than failing.
+   - Confirm the "Sync cases" button that used to sit at the top of each
+     line's page is gone — the overall "Refresh" button now covers that
+     (it already re-checks every open line for new cases).
+
+7. **NEW — CAESAR "file is open" detection.** With a job open in prepip.exe
+   (so only `*_MAIN._A` exists, no `*_MAIN.C2`), try "New Lift Case" on
+   that line. You should get a message explaining the model is open in
+   CAESAR II, asking you to either close CAESAR II entirely or use File →
+   Open (Ctrl+O) in prepip.exe — **not** a lift case silently built from
+   incomplete data. Once you collapse the file back, the dialog should
+   detect it and continue automatically without you needing to click
+   anything. This is Phase 1 only — nothing is automated yet, per your
+   own instruction to get this fallback solid first.
+
 ---
 
 ## Prerequisites

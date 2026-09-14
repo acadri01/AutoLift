@@ -188,12 +188,21 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
-## Stop-and-ask (blocking - new WO/Line/case-creation features, 2026-09-14)
-- User requested four new features (create work order, create line from a
-  template, a "Create new case" button instead of right-click, and
-  detection of CAESAR's `.C2`/`._A` file-expansion issue) and explicitly
-  asked for a to-do list to confirm before proceeding - posted on the PR,
-  no code changed yet.
+## Stop-and-ask (resolved 2026-09-14 - user answered both blockers, implemented)
+- **RESOLVED**: user replied "there is a finalisation folder within the
+  line number, but this is mainly for the user. There should be one for
+  the full work order which sits together with the line numbers, thus
+  the exported markup for the full wo may be saved there" (confirms the
+  NEW, WO-level FINALIZATION folder, separate from the per-line one) and
+  "For point three, caps for first letter of each word" (Title Case
+  button labels). Both applied; all five items below are now built and
+  pushed - see PROGRESS.md for the implementation/verification log.
+  Original request and both blockers preserved below for the record.
+- Original entries, preserved for context: user requested four new
+  features (create work order, create line from a template, a "Create
+  new case" button instead of right-click, and detection of CAESAR's
+  `.C2`/`._A` file-expansion issue) and explicitly asked for a to-do list
+  to confirm before proceeding - posted on the PR, no code changed yet.
   - **`Add_New_Line.zip` — RESOLVED**: the user re-uploaded it directly
     (not the earlier unreachable GitHub attachment link). Inspected it:
     ```

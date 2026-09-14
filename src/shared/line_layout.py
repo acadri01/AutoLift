@@ -8,12 +8,18 @@ live.
 Structure
 ---------
     <WorkOrder>/
+        FINALIZATION/           work-order-level exported markup (added
+                                 2026-09-14, per direct instruction - sits
+                                 alongside the line-number folders, for
+                                 the full WO's markup; distinct from each
+                                 line's own 02_FINALISATION below, which
+                                 is per-line)
         <LineNumber>/
             00_CII/                CAESAR files; generator runs here
                 .liftdoc/          HIDDEN sidecar folder
                     <case>_liftmeta.json
             01_REFS/               isometrics (upload from here)
-            02_FINALISATION/       issued PDFs (export to here)
+            02_FINALISATION/       issued PDFs (export to here, per line)
 
 Rules
 -----
@@ -23,6 +29,9 @@ Rules
 * From ANY folder at or below a line root (the line folder itself, 00_CII,
   01_REFS, 02_FINALISATION, or .liftdoc) we can resolve upward to the line
   root, and from there to the work order (its parent).
+* A work order's top-level FINALIZATION folder is a sibling of its line
+  folders, not a line-root itself - it never appears in classify()'s
+  "line" detection (that still only looks for a 00_CII subfolder).
 
 Nothing here imports tkinter, the DB, or reportlab - pure path logic.
 """
@@ -37,6 +46,11 @@ REFS_DIR = "01_REFS"
 FINAL_DIR = "02_FINALISATION"
 SIDECAR_DIR = ".liftdoc"          # hidden, inside 00_CII
 SIDECAR_SUFFIX = "_liftmeta.json"
+
+# Work-order-level (not per-line) exported markup folder - a sibling of
+# the line-number folders, added 2026-09-14. See the module docstring's
+# Structure diagram for how this differs from FINAL_DIR above.
+WO_FINALIZATION_DIR = "FINALIZATION"
 
 # how far up we're willing to walk looking for a line root
 _MAX_UP = 6
@@ -71,6 +85,18 @@ def refs_dir(line_root: str) -> str:
 
 def final_dir(line_root: str) -> str:
     return os.path.join(line_root, FINAL_DIR)
+
+
+def wo_finalization_dir(wo_root: str) -> str:
+    """
+    <WorkOrder>/FINALIZATION - sits alongside the line-number folders, for
+    the exported markup covering the FULL work order. Distinct from
+    final_dir() above, which is per-LINE. Per direct instruction
+    (2026-09-14): "There should be one for the full work order which
+    sits together with the line numbers, thus the exported markup for
+    the full wo may be saved there."
+    """
+    return os.path.join(wo_root, WO_FINALIZATION_DIR)
 
 
 def _hide(path: str) -> None:

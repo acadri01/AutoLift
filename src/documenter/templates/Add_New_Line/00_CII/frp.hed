@@ -1,0 +1,9 @@
+*
+* THIS IS THE STANDARD "CAESAR II" FRP DATA
+*
+ .3200000E+07    1.           FRP_Emod_(axial) =
+ .2500000E+00    1.           FRP_Ratio_Gmod/Emod_(axial) =
+ .1527272E+00    1.           FRP_Ea/Eh*Vh/a =
+ 3.              0.           FRP_Laminate_Type =
+ .1200000E+02    1.           FRP_Alpha =
+ .6000000E-01    1.           FRP_Density =

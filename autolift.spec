@@ -12,7 +12,12 @@ a = Analysis(
     ['src/launcher.py'],
     pathex=['src', 'src/creator', 'src/documenter', 'src/shared'],
     binaries=[],
-    datas=[],
+    datas=[
+        # Add New Line's bundled starter content (line_new.py's
+        # _template_root() expects it at <bundle>/templates/Add_New_Line) -
+        # see src/documenter/templates/Add_New_Line/README.md.
+        ('src/documenter/templates/Add_New_Line', 'templates/Add_New_Line'),
+    ],
     hiddenimports=[
         # launcher-side
         'install_context_menu',
@@ -23,6 +28,7 @@ a = Analysis(
         'neutral_writer', 'ui_dialogs',
         # documenter (MarkUpGen) modules imported by name
         'lift_documenter', 'app_ui', 'case_meta_ui', 'doc_config',
+        'line_new',
         'line_ui', 'wo_ui', 'sheet_canvas', 'export', 'work_order',
         'iso_overlay', 'pdf_render', 'layout_builder', 'catalog',
         'cloud_geom', 'lift_calc', 'lift_db', 'sheet_model',

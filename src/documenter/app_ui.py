@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Dict, Optional
 
 import markup_weights_ui
@@ -117,8 +117,16 @@ class DocumenterApp(tk.Tk):
 
         bar = ttk.Frame(left)
         bar.pack(side="top", fill="x", pady=(0, 4))
+        # One button, fixed location - label/action follow the tree
+        # selection (see _update_create_button): "New Work Order" at the
+        # root, "Add New Line" inside a work order, "New Lift Case"
+        # inside a line - per direct instruction, 2026-09-14.
+        self._create_context = ("wo", None)
+        self._create_btn = ttk.Button(bar, text="New Work Order",
+                                      command=self._on_create_button)
+        self._create_btn.pack(side="left")
         ttk.Button(bar, text="Refresh", width=12,
-                   command=self.refresh).pack(side="left")
+                   command=self.refresh).pack(side="left", padx=(4, 0))
         ttk.Button(bar, text="View archive",
                    command=self._open_archive).pack(side="left", padx=(4, 0))
 
@@ -356,6 +364,8 @@ class DocumenterApp(tk.Tk):
             self._populate(iid)
 
     def _on_select(self):
+        self._update_create_button()
+
         sel = self.nav.selection()
         if not sel:
             return
@@ -480,9 +490,9 @@ class DocumenterApp(tk.Tk):
             m.add_command(label="Archive work order",
                           command=lambda: self._archive_wo(int(sid)))
         elif kind == "line":
-            m.add_command(label="Create lift case...",
-                          command=lambda: self._create_lift_case(int(sid)))
-            m.add_separator()
+            # Case creation now lives in the toolbar's context-sensitive
+            # "New Lift Case" button (see _update_create_button), not
+            # here - per direct instruction, 2026-09-14.
             m.add_command(label="Archive line",
                           command=lambda: self._archive_line(int(sid)))
         elif kind == "case":
@@ -510,6 +520,162 @@ class DocumenterApp(tk.Tk):
         self.db.archive_wo(wo_id)
         self.refresh()
         self.say(f"Work order {wo['wo_no']} archived.")
+
+    # ------------------------------------------------------------------
+    # New Work Order / Add New Line / New Lift Case - one button, its
+    # label and target following the tree selection. Per direct
+    # instruction, 2026-09-14: "the button location to be the same, but
+    # changing it out when the user goes through the tree."
+    # ------------------------------------------------------------------
+    _CREATE_LABELS = {
+        "wo": "New Work Order",
+        "line": "Add New Line",
+        "case": "New Lift Case",
+    }
+
+    def _update_create_button(self):
+        """Recompute what the toolbar's create button does next, from the
+        current tree selection. Called on every selection change."""
+        sel = self.nav.selection()
+        iid = sel[0] if sel else ROOT_IID
+
+        if iid == ROOT_IID or iid.endswith("::d") or ":" not in iid:
+            self._create_context = ("wo", None)
+        else:
+            kind, sid = iid.split(":", 1)
+            sid = int(sid)
+            if kind == "wo":
+                self._create_context = ("line", sid)
+            elif kind == "line":
+                self._create_context = ("case", sid)
+            elif kind == "case":
+                case = self.db.get_case(sid)
+                self._create_context = ("case", case["line_id"] if case else None)
+            elif kind == "iso":
+                iso = self.db.get_iso(sid)
+                self._create_context = ("case", iso["line_id"] if iso else None)
+            else:
+                self._create_context = ("wo", None)
+
+        self._create_btn.config(text=self._CREATE_LABELS[self._create_context[0]])
+
+    def _on_create_button(self):
+        kind, target_id = self._create_context
+        if kind == "wo":
+            self._create_work_order()
+        elif kind == "line":
+            self._create_line(target_id)
+        elif kind == "case" and target_id is not None:
+            self._create_lift_case(target_id)
+
+    def _infer_wo_parent_dir(self) -> Optional[str]:
+        """
+        Best-effort: the parent directory most existing work orders live
+        in, so a new one lands "in the correct path, as the rest of the
+        work orders" (per direct instruction, 2026-09-14) without asking.
+        None if there's nothing to infer from (no existing work order has
+        a folder yet) - the caller falls back to asking.
+        """
+        from collections import Counter
+        parents = [os.path.dirname(w["folder"].rstrip("\\/"))
+                  for w in self.db.wos(include_archived=True) if w["folder"]]
+        if not parents:
+            return None
+        return Counter(parents).most_common(1)[0][0]
+
+    def focus_wo(self, wo_id: int):
+        """Programmatic navigation to a work order (e.g. right after creating one)."""
+        wo = self.db.get_wo(wo_id)
+        if not wo:
+            return
+        iid = self._insert_wo(wo)
+        self.nav.selection_set(iid)
+        self.nav.see(iid)
+
+    def _create_work_order(self):
+        wo_no = simpledialog.askstring("New Work Order", "Work order number:", parent=self)
+        if not wo_no:
+            return
+        wo_no = wo_no.strip()
+        if not wo_no:
+            return
+        if any(w["wo_no"] == wo_no for w in self.db.wos(include_archived=True)):
+            messagebox.showerror("New Work Order",
+                                 f"Work order {wo_no} already exists.", parent=self)
+            return
+
+        parent_dir = self._infer_wo_parent_dir()
+        if parent_dir is None:
+            parent_dir = filedialog.askdirectory(
+                parent=self, title="Select the folder where work orders live")
+            if not parent_dir:
+                return
+
+        wo_folder = os.path.join(parent_dir, wo_no)
+        if os.path.exists(wo_folder):
+            messagebox.showerror("New Work Order",
+                                 f"A folder already exists at:\n{wo_folder}", parent=self)
+            return
+
+        import line_layout as LL
+        try:
+            os.makedirs(wo_folder)
+            os.makedirs(LL.wo_finalization_dir(wo_folder))
+        except OSError as e:
+            messagebox.showerror("New Work Order",
+                                 f"Could not create the folder:\n{e}", parent=self)
+            return
+
+        self.flush()
+        wo_id = self.db.get_or_create_wo(wo_no, wo_folder)
+        self.refresh()
+        self.focus_wo(wo_id)
+        self.say(f"Work order {wo_no} created.")
+
+    def _create_line(self, wo_id: int):
+        wo = self.db.get_wo(wo_id)
+        if not wo:
+            return
+        line_no = simpledialog.askstring(
+            "Add New Line", f"Line number for work order {wo['wo_no']}:", parent=self)
+        if not line_no:
+            return
+        line_no = line_no.strip()
+        if not line_no:
+            return
+        if any(ln["line_no"] == line_no
+              for ln in self.db.lines_for_wo(wo_id, include_archived=True)):
+            messagebox.showerror(
+                "Add New Line",
+                f"Line {line_no} already exists in work order {wo['wo_no']}.",
+                parent=self)
+            return
+
+        wo_folder = wo["folder"] or ""
+        if not wo_folder or not os.path.isdir(wo_folder):
+            messagebox.showerror(
+                "Add New Line",
+                f"Work order {wo['wo_no']}'s folder isn't set or doesn't exist:\n"
+                f"{wo_folder or '(none)'}",
+                parent=self)
+            return
+
+        import line_new
+        try:
+            line_folder = line_new.create_line(wo_folder, line_no)
+        except FileExistsError as e:
+            messagebox.showerror("Add New Line", str(e), parent=self)
+            return
+        except OSError as e:
+            messagebox.showerror("Add New Line",
+                                 f"Could not create the line folder:\n{e}", parent=self)
+            return
+
+        self.flush()
+        line_id = self.db.get_or_create_line(wo_id, line_no, line_folder)
+        self.refresh()
+        self.focus_line(line_id)
+        self.say(f"Line {line_no} created.")
 
     def _create_lift_case(self, line_id: int):
         """
@@ -542,7 +708,7 @@ class DocumenterApp(tk.Tk):
             return
 
         # Pick up the freshly generated case (sidecar) without reopening -
-        # same ingest LinePanel's own "Check for new cases" button uses.
+        # same ingest the overall Refresh button's _rescan_from_disk() uses.
         res = self.db.ingest_sidecars(ln["wo_id"], folder)
         self.reload_line(line_id)
         if self._panel_key == ("line", line_id) and isinstance(self._panel, LinePanel):
