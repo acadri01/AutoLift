@@ -259,8 +259,6 @@ class LinePanel(ttk.Frame):
         right = ttk.LabelFrame(cont, text="Line preview  -  isos + all cases, export order",
                                padding=PAD)
         right.grid(row=0, column=1, sticky="nsew")
-        bar = ttk.Frame(right); bar.pack(fill="x")
-        ttk.Button(bar, text="Refresh", command=self.show_overview).pack(side="right")
         body = ttk.Frame(right); body.pack(fill="both", expand=True)
         if isos or cases:
             self._embed_pages(body, lambda: preview.line_pages(self.db, lid))

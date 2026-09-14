@@ -226,8 +226,13 @@ reporting.
      folder (since there's nothing yet to infer a location from), rather
      than failing.
    - Confirm the "Sync cases" button that used to sit at the top of each
-     line's page is gone — the overall "Refresh" button now covers that
-     (it already re-checks every open line for new cases).
+     line's page is gone, AND the separate "Refresh" button that used to
+     sit above the line's own preview pane (on the overview screen) is
+     gone too — the overall "Refresh" button in the left panel now covers
+     both (it already re-checks every open line for new cases and
+     rebuilds the tree/panel). The PDF/iso full-page viewer's own
+     "Refresh" (re-renders the current page at the right size) is
+     unrelated and still there — that one's a different feature.
 
 7. **NEW — CAESAR "file is open" detection + automation (Phase 2, now with
    correct sequencing after your two follow-up reports).** With a job

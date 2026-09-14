@@ -861,3 +861,19 @@ running status log Claude appends to (skim this from mobile)
   two separate timestamped blocks per attempt (one for the foreground
   step, one for the keystroke) rather than one, making the actual gap
   between them visible if it's ever worth tuning the delay values.
+
+- 2026-09-14: User confirmed the CAESAR automation sequencing fix worked
+  ("That worked."), then flagged a second stray refresh button I'd
+  missed: "I can see you didn't remove the refresh for the line number."
+  The earlier "one refresh button" pass only removed `line_ui.py`'s
+  per-line "Sync cases" button (the data-sync one); missed a SEPARATE
+  in-panel "Refresh" button inside `LinePanel.show_overview()`'s own
+  "Line preview" pane, whose command was just `self.show_overview` (a
+  pure re-render of the already-known data, not a disk sync) - also
+  redundant now that the overall Refresh button is the one and only
+  refresh control. Removed it (and the now-empty button-bar frame it
+  lived in). Confirmed `PreviewPane`'s own "Refresh" button (used for the
+  full-page PDF/iso viewer, both in `line_ui.py` and `wo_ui.py`) is a
+  genuinely different feature - re-rasterizing PDF pages at the current
+  size, not a data sync - and left untouched; it isn't what "refresh for
+  the line number" referred to.
