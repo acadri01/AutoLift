@@ -877,3 +877,10 @@ running status log Claude appends to (skim this from mobile)
   genuinely different feature - re-rasterizing PDF pages at the current
   size, not a data sync - and left untouched; it isn't what "refresh for
   the line number" referred to.
+- Merged PR #2 into `main` (squash `df4f14c`) after user confirmation
+  ("I confirm everything works. Let's merge with the main branch"). Restarted
+  the working branch from `main` per CLAUDE.md's merged-PR handling and
+  updated TESTING.md: "Test this now" now says plainly there's nothing
+  outstanding (previous round collapsed into a reference `<details>` block),
+  and Step 1's "get the code" instructions point at `main` instead of the
+  now-merged feature branch.
