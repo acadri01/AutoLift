@@ -5,12 +5,17 @@ wraps two CAESAR II piping-stress tools — a **lift-case Creator** and a
 **mark-up Documenter** — behind a single exe and a pair of right-click
 context-menu verbs.
 
-> **Status**: Phase 0 (packaging) is built and merged — the two programs run
-> exactly as they always have, just shipped as one exe with self-installing
-> context menus. The fuller in-process merge (single window, automated
-> workflow state) is designed in [MERGE_PLAN.md](MERGE_PLAN.md) but paused.
-> See [SPEC.md](SPEC.md) for current scope and [PROGRESS.md](PROGRESS.md) /
-> [QUESTIONS.md](QUESTIONS.md) for the running build log.
+> **Status**: Phase 0 (packaging) is built and merged, and substantial
+> functional work has landed since: bend/rigid/reducer/expansion-joint-aware
+> lift-point placement, AppData-based config/database storage with automatic
+> legacy-install migration (database, screenshots, isometrics included),
+> in-Documenter work-order/line/lift-case creation, and detection +
+> automated handling of CAESAR II having the model file open (expanded
+> `._A`) when a new lift case is created. See [SPEC.md](SPEC.md) for current
+> scope and milestones, [PROGRESS.md](PROGRESS.md) for the running build
+> log, and [QUESTIONS.md](QUESTIONS.md) for assumptions made and open
+> questions. The fuller in-process merge design beyond what's shipped is in
+> [MERGE_PLAN.md](MERGE_PLAN.md).
 
 ## Workflow
 
@@ -79,16 +84,18 @@ only a filesystem handoff, and it already works end to end:
 
 - The Creator writes `<case>_liftmeta.json` into a hidden
   `<line>/00_CII/.liftdoc/` folder next to the lift case it just built.
-- The Documenter watches that same folder (on open, or via its "Sync cases"
-  button) and ingests every sidecar it finds into its own SQLite database —
-  idempotently, so re-running the ingest is always safe.
+- The Documenter watches that same folder (on open, or via its overall
+  "Refresh" button) and ingests every sidecar it finds into its own SQLite
+  database — idempotently, so re-running the ingest is always safe.
 - A legacy or hand-created `.C2` file that never went through the Creator
   can be adopted the same way ("Add existing case..." in the Documenter),
   writing the identical sidecar format by hand.
 
 This handshake, plus the job-folder layout convention it depends on
-(`00_CII` / `01_REFS` / `02_FINALISATION`), is implemented once and shared
-byte-for-byte between both programs — see `src/shared/`.
+(`00_CII` / `01_REFS` / `02_FINALISATION` per line, plus a work-order-level
+`FINALIZATION` folder — sibling to the line folders — for the full-WO
+export), is implemented once and shared byte-for-byte between both
+programs — see `src/shared/`.
 
 ### What's actually built vs. designed
 
@@ -96,8 +103,12 @@ byte-for-byte between both programs — see `src/shared/`.
 |---|---|
 | Both programs run, unmodified, behind one exe | **Shipped** (Phase 0) |
 | Both context-menu verbs self-install (HKCU, no admin) | **Shipped** (Phase 0) |
-| Single-window app (no second Tk root for lift creation) | Designed, paused — [MERGE_PLAN.md](MERGE_PLAN.md) "Phase 1+" |
-| Automatic run-complete / force-read detection | Designed, paused |
+| Bend/rigid/reducer/expansion-joint-aware lift-point placement | **Shipped** |
+| AppData-based config/database storage, zero-touch first run, legacy-install migration | **Shipped** |
+| In-Documenter work-order / line / lift-case creation (single window, no second Tk root) | **Shipped** |
+| CAESAR II "file is open" (`._A`) detection, guided fallback, and automated collapse | **Shipped** |
+| Automatic run-complete / force-read detection | Designed, paused — [SPEC.md](SPEC.md) Milestone 6 |
+| Merging one engineer's database into another's (for handovers) | Not yet started — needs its own scoping pass |
 | Automated support-function (rest/hold-down/guide/limit-stop/anchor) placement | Not yet started — see [SPEC.md](SPEC.md) |
 
 ## Requirements
