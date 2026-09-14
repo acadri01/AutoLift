@@ -252,7 +252,29 @@ where Claude parks non-blocking questions + logs assumptions
   assertions): the legacy DB's real data lands in the migrated copy, the
   legacy file survives untouched, a second run is a stable no-op, and an
   already-populated AppData database is never overwritten by a different
-  legacy one. Original question preserved below for the record.
+  legacy one.
+  **Second follow-up (same day, PR comment)**: "I assume this includes
+  the rest of the relevant information as well such as images and isos?"
+  It did NOT, and this was a real gap, not a hypothetical one:
+  `lift_db.py`'s own module docstring documents that screenshots and
+  ingested iso PDFs are `db_dir/images/<line>/<case>.png` and
+  `db_dir/isos/<line>/<file>` - files sitting BESIDE the `.db` file, not
+  rows/BLOBs inside it (confirmed against `image_path()`/`iso_dir()`/
+  `abs()`, which all build paths relative to `self.dir`, the database's
+  own directory). The database-file-only migration above would have
+  copied the DB's rows (which still reference those relative paths) while
+  leaving the actual image/PDF files behind at the old location -
+  everything would have looked fine in the tree, but every screenshot and
+  iso preview would 404. Fixed: `_copy_db_file` (in `lift_documenter.py`)
+  now also copies the `images/` and `isos/` subdirectories (via
+  `shutil.copytree(..., dirs_exist_ok=True)`) alongside the `.db` file
+  itself, using the same directory names `lift_db.py`'s own
+  `_prune_line_dirs` already uses. Verified via a new headless test that
+  plants a real fake screenshot and iso PDF at the exact
+  `db_dir/images/<line>/<case>.png` / `db_dir/isos/<line>/<file>` paths
+  `lift_db.py` itself would use, migrates, and confirms both land at the
+  new location with byte-identical content while the legacy copies remain
+  untouched. Original question preserved below for the record.
 - Original question, preserved for context: **What should "zero-touch
   first-run" actually mean for config/DB location, and is it worth
   building?** SPEC.md's milestone 5 says to

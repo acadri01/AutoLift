@@ -189,6 +189,14 @@ reporting.
      all there), and that your OLD database file (wherever it used to
      live) is still there too, untouched — this is a copy, your original
      is never deleted or modified.
+   - **Screenshots and isometrics migrate too, not just the database
+     rows.** Open a few existing lift cases that had a screenshot pasted
+     in, and a line with an uploaded iso PDF — both should display
+     normally (not a broken/missing image). Under the hood, check that
+     `%LOCALAPPDATA%\AutoLift\images\` and `%LOCALAPPDATA%\AutoLift\isos\`
+     now exist and contain your files (a per-line subfolder each) —
+     these live beside the database file, not inside it, so this needed
+     its own copy step.
    - This is a foundational change (every config/DB read or write now
      goes through a different path) — please do a normal full session
      (open a line, view a case) rather than just checking the folder

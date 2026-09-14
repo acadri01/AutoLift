@@ -41,13 +41,29 @@ def _default_db_path() -> str:
     return os.path.join(app_paths.autolift_appdata_dir(), DB_NAME)
 
 
+# lift_db.py's own db-managed file subdirectories (see its module
+# docstring: "Screenshots -> db_dir/images/<line>/<case>.png", "Iso PDFs
+# -> db_dir/isos/<line>/<file>") - siblings of the .db file itself, NOT
+# rows/BLOBs inside it, so copying only the .db file would silently
+# orphan every screenshot and ingested iso PDF at the old location.
+_DB_MANAGED_SUBDIRS = ("images", "isos")
+
+
 def _copy_db_file(src: str, dst: str) -> None:
     """
-    Copy a SQLite database file, plus any -journal/-wal/-shm companion
-    files left beside it, to a new location. A plain byte copy is safe
-    here: this only ever runs before any LiftDb connection is opened for
-    either path (see _resolve_db_path) - never while the source is
-    actively being written to.
+    Copy a SQLite database file - plus any -journal/-wal/-shm companion
+    files, AND its db-managed file subdirectories (_DB_MANAGED_SUBDIRS,
+    which sit beside the .db file, not inside it) - to a new location.
+
+    Per direct instruction (2026-09-14 follow-up: "I assume this includes
+    the rest of the relevant information as well such as images and
+    isos?" - it didn't, until this fix): screenshots and ingested iso PDFs
+    live in db_dir/images and db_dir/isos, not as rows in the database
+    itself, so migrating the .db file alone would leave them behind.
+
+    A plain byte/tree copy is safe here: this only ever runs before any
+    LiftDb connection is opened for either path (see _resolve_db_path) -
+    never while the source is actively being written to.
     """
     import shutil
     shutil.copy2(src, dst)
@@ -55,6 +71,12 @@ def _copy_db_file(src: str, dst: str) -> None:
         companion = src + suffix
         if os.path.isfile(companion):
             shutil.copy2(companion, dst + suffix)
+
+    src_dir, dst_dir = os.path.dirname(src), os.path.dirname(dst)
+    for sub in _DB_MANAGED_SUBDIRS:
+        src_sub = os.path.join(src_dir, sub)
+        if os.path.isdir(src_sub):
+            shutil.copytree(src_sub, os.path.join(dst_dir, sub), dirs_exist_ok=True)
 
 
 def _resolve_db_path() -> str:

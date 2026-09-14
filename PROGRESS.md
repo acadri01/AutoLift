@@ -569,3 +569,20 @@ running status log Claude appends to (skim this from mobile)
   path assertions): data survives migration, the legacy file is
   untouched, repeat calls are a stable no-op, and an already-populated
   AppData database is never clobbered by a different legacy one.
+
+- 2026-09-14: Second follow-up PR comment, same thread: "I assume this
+  includes the rest of the relevant information as well such as images
+  and isos?" It didn't — a real gap: `lift_db.py`'s screenshots and
+  ingested iso PDFs live as files beside the `.db` file
+  (`db_dir/images/<line>/<case>.png`, `db_dir/isos/<line>/<file>`), not
+  as rows/BLOBs inside it, so the previous database-only migration would
+  have carried the DB's rows forward while leaving every actual image/PDF
+  file behind at the old location — the tree would have looked complete
+  but screenshots/iso previews would all 404. Fixed: `_copy_db_file` in
+  `lift_documenter.py` now also copies the `images/` and `isos/`
+  subdirectories alongside the `.db` file (`shutil.copytree`,
+  `dirs_exist_ok=True`), matching the exact directory names `lift_db.py`'s
+  own `_prune_line_dirs` uses. Verified with a headless test planting a
+  real fake screenshot + iso PDF at those exact paths and confirming both
+  migrate with byte-identical content while the legacy copies survive
+  untouched; re-ran the earlier no-clobber test too, still holds.

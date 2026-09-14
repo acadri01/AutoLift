@@ -143,8 +143,11 @@ runnable commit per CLAUDE.md.
    self-heals back to that default if its configured location ever
    becomes unreachable. A legacy database's actual DATA (not just its
    config pointer) is also migrated into the new AppData location once,
-   per a same-day follow-up instruction — never overwriting an AppData
-   database that's already in use. (argv dispatch and HKCU registration
+   including its db-managed screenshot/iso-PDF files (which live beside
+   the `.db` file, not inside it — a second follow-up caught that the
+   first pass missed these), per same-day follow-up instructions — never
+   overwriting an AppData database that's already in use. (argv dispatch
+   and HKCU registration
    already shipped in Phase 0.) Still open: whether to add a "merge
    another engineer's database" action to Database admin, for when
    someone takes over a colleague's files — a materially different,
