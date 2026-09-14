@@ -88,6 +88,40 @@ class ElementOverride:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+def _new_dialog_root(parent: Optional[tk.Misc]) -> tk.Tk | tk.Toplevel:
+    """
+    tk.Tk() when standalone (parent=None - every current caller, unchanged
+    from before this Milestone-3 refactor), tk.Toplevel(parent) when
+    embedded in a host app's own Tk root (Milestone 4's in-Documenter
+    "Create lift case..." entry point - no caller passes parent yet)."""
+    if parent is None:
+        return tk.Tk()
+    root = tk.Toplevel(parent)
+    root.transient(parent)
+    return root
+
+
+def _run_modal(root: tk.Tk | tk.Toplevel, parent: Optional[tk.Misc]) -> None:
+    """
+    Block until `root` is closed (every _confirm/_cancel/_close path calls
+    root.destroy()).
+
+    Standalone (parent=None): root.mainloop() - byte-for-byte the same call
+    every dialog made before this refactor, so today's standalone tool is
+    unaffected regardless of how any future embedded caller behaves.
+
+    Embedded (parent given): grab_set() makes the dialog modal relative to
+    the host window, and wait_window() blocks the CALLER without starting a
+    second mainloop - the host app's own mainloop (already running) keeps
+    processing events for this window in the meantime, which is the
+    standard Tkinter pattern for a modal child dialog."""
+    if parent is None:
+        root.mainloop()
+    else:
+        root.grab_set()
+        root.wait_window()
+
+
 def _center(root: tk.Tk | tk.Toplevel) -> None:
     root.update_idletasks()
     w = root.winfo_width()
@@ -141,10 +175,11 @@ class FolderSelectDialog:
     result : Path or None (cancelled)
     """
 
-    def __init__(self, initial_path: Optional[Path] = None):
+    def __init__(self, initial_path: Optional[Path] = None,
+                 parent: Optional[tk.Misc] = None):
         self.result: Optional[Path] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Select Folder")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -154,7 +189,7 @@ class FolderSelectDialog:
         self._build_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_ui(self):
         pad = dict(padx=14, pady=6)
@@ -244,11 +279,11 @@ class NodePromptDialog:
              None       — user cancelled
     """
 
-    def __init__(self, prefix: str):
+    def __init__(self, prefix: str, parent: Optional[tk.Misc] = None):
         self.prefix = prefix
         self.result: Optional[List[str]] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Node Selection")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -257,7 +292,7 @@ class NodePromptDialog:
         self._build_static_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_static_ui(self):
         pad = dict(padx=12, pady=5)
@@ -411,7 +446,8 @@ class LiftParamsDialog:
     DEFAULT_SPACING_MM = 750.0   # overridden from config at runtime
     DEFAULT_DISP_MM    = 10.0    # overridden from config at runtime
 
-    def __init__(self, prefix: str, nodes: List[str]):
+    def __init__(self, prefix: str, nodes: List[str],
+                 parent: Optional[tk.Misc] = None):
         from config import default_spacing_mm, default_displacement_mm
         self.DEFAULT_SPACING_MM = default_spacing_mm()
         self.DEFAULT_DISP_MM    = default_displacement_mm()
@@ -420,7 +456,7 @@ class LiftParamsDialog:
         self.nodes  = nodes
         self.result: Optional[LiftParams] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Parameters")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -431,7 +467,7 @@ class LiftParamsDialog:
         self._build_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_ui(self):
         pad = dict(padx=14, pady=5)
@@ -582,6 +618,7 @@ class CiiPollingDialog:
         reference_mtime: float,
         c2_name: str,
         proc: Optional[subprocess.Popen] = None,
+        parent: Optional[tk.Misc] = None,
     ):
         from config import poll_timeout_s
         self.MAX_WAIT_S      = poll_timeout_s()
@@ -592,7 +629,7 @@ class CiiPollingDialog:
         self.result: bool    = False
         self._start          = time.time()
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Waiting for CII Export")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._abort)
@@ -601,7 +638,7 @@ class CiiPollingDialog:
         _center(self.root)
         self._raise()
         self._poll()
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _raise(self):
         """Bring the dialog to the front above iecho and claim keyboard focus."""
@@ -709,11 +746,12 @@ class ElementOverrideDialog:
         upstream_to: Optional[int] = None,
         downstream_from: Optional[int] = None,
         downstream_to: Optional[int] = None,
+        parent: Optional[tk.Misc] = None,
     ):
         self.result: Optional[ElementOverride] = None
         self._sides = sides
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title(f"Element Override — Node {lifted_node}")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -724,7 +762,7 @@ class ElementOverrideDialog:
         )
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_ui(self, lifted_node, up_from, up_to, dn_from, dn_to, problem, sides):
         pad = dict(padx=12, pady=5)
@@ -837,18 +875,20 @@ def show_message(title: str, message: str,
     return True
 
 
-def prompt_folder(initial_path: Optional[Path] = None) -> Optional[Path]:
-    d = FolderSelectDialog(initial_path)
+def prompt_folder(initial_path: Optional[Path] = None,
+                  parent: Optional[tk.Misc] = None) -> Optional[Path]:
+    d = FolderSelectDialog(initial_path, parent=parent)
     return d.result
 
 
-def prompt_nodes(prefix: str) -> Optional[List[str]]:
-    d = NodePromptDialog(prefix)
+def prompt_nodes(prefix: str, parent: Optional[tk.Misc] = None) -> Optional[List[str]]:
+    d = NodePromptDialog(prefix, parent=parent)
     return d.result
 
 
-def prompt_lift_params(prefix: str, nodes: List[str]) -> Optional[LiftParams]:
-    d = LiftParamsDialog(prefix, nodes)
+def prompt_lift_params(prefix: str, nodes: List[str],
+                       parent: Optional[tk.Misc] = None) -> Optional[LiftParams]:
+    d = LiftParamsDialog(prefix, nodes, parent=parent)
     return d.result
 
 
@@ -857,9 +897,10 @@ def poll_for_cii(
     reference_mtime: float,
     c2_name: str,
     proc: Optional[subprocess.Popen] = None,
+    parent: Optional[tk.Misc] = None,
 ) -> bool:
     """Show CiiPollingDialog. Returns True when file is ready."""
-    d = CiiPollingDialog(cii_path, reference_mtime, c2_name, proc)
+    d = CiiPollingDialog(cii_path, reference_mtime, c2_name, proc, parent=parent)
     return d.result
 
 
@@ -871,6 +912,7 @@ def prompt_element_override(
     upstream_to: Optional[int] = None,
     downstream_from: Optional[int] = None,
     downstream_to: Optional[int] = None,
+    parent: Optional[tk.Misc] = None,
 ) -> Optional[ElementOverride]:
     d = ElementOverrideDialog(
         lifted_node=lifted_node,
@@ -878,5 +920,6 @@ def prompt_element_override(
         sides=sides,
         upstream_from=upstream_from, upstream_to=upstream_to,
         downstream_from=downstream_from, downstream_to=downstream_to,
+        parent=parent,
     )
     return d.result

@@ -11,6 +11,19 @@ where Claude parks non-blocking questions + logs assumptions
   change to work from within the merged single-window app.
 - Registry rework targets HKCU only (per user decision) — no HKLM/elevated
   fallback path is being built unless later requested.
+- **Milestone 3's `tk.Tk()` → `tk.Toplevel(parent)` refactor (2026-09-14)**:
+  built now rather than deferred again, since it's a routine engineering
+  call already directed by SPEC.md's milestone wording, not a genuine
+  requirement ambiguity. Made it strictly additive to de-risk it: every
+  dialog's new `parent` parameter defaults to `None`, and with `None` the
+  code path is byte-for-byte what ran before (`tk.Tk()` + `.mainloop()`)
+  — no current caller passes a `parent`, so today's standalone tool's
+  behaviour is unchanged by construction, not just by review. The
+  `tk.Toplevel(parent)` + `grab_set()`/`wait_window()` path is new,
+  unexercised groundwork for Milestone 4's not-yet-built in-Documenter
+  entry point. `show_message()` confirmed left as-is (see above) — it's a
+  native `MessageBoxW`, not a `tk.Tk()` dialog, so out of SPEC.md's
+  milestone-3 scope.
 
 ## Assumptions made — Phase 0 packaging (2026-09-07)
 - Kept the Documenter's fallback verb behaviour: no mode flag / a bare

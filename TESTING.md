@@ -128,6 +128,21 @@ of calling `sys.exit()` directly. None of these should change what you
 see or click through — if they do, that's a real regression worth
 reporting.
 
+3. **Every Creator dialog in the standalone tool — please run through the
+   whole "Create lift case..." flow once end to end.** `ui_dialogs.py`'s 5
+   dialogs (folder select, node entry, lift parameters, the CII-export
+   wait screen, and the element-override screen) now support being opened
+   either as their own top-level window (`tk.Tk()`, exactly what runs
+   today — nothing calls it any other way yet) or embedded inside a host
+   window (`tk.Toplevel(parent)`, for Milestone 4's planned in-Documenter
+   entry point, not wired up to anything yet). This is groundwork, not a
+   behaviour change: every dialog you'll actually see right now still
+   takes the first path, byte-for-byte the same as before. It's still
+   worth a full click-through, since this touched the `__init__` of all 5
+   dialog classes — confirm each one still appears, centers, accepts
+   input, and closes normally on OK/Cancel/Escape, with nothing looking or
+   behaving differently from before you pulled this change.
+
 ---
 
 ## Prerequisites

@@ -426,3 +426,37 @@ running status log Claude appends to (skim this from mobile)
   QUESTIONS.md's Stop-and-ask entry marked resolved. Still outstanding: a
   live CAESAR II round-trip and a real-machine check of the new dialog UX
   (both need a Windows session).
+
+- 2026-09-14: Completed Milestone 3's remaining piece — `ui_dialogs.py`'s
+  `tk.Tk()` dialogs now support `tk.Toplevel(parent)`. Per CLAUDE.md's
+  continuous-progress rule (this is a routine, SPEC.md-directed engineering
+  call, not a stop-and-ask item), rather than leave it deferred again.
+  Added two shared helpers, `_new_dialog_root(parent)` and
+  `_run_modal(root, parent)`: with `parent=None` (every current caller,
+  unchanged) they do exactly what every dialog did before this commit -
+  `tk.Tk()` then `.mainloop()`, byte-for-byte - so today's standalone tool
+  is provably unaffected. With a `parent` given (no caller passes one yet;
+  this is groundwork for Milestone 4's in-Documenter entry point), they
+  use `tk.Toplevel(parent)` + `.transient(parent)`, then `.grab_set()` +
+  `.wait_window()` instead of a second `mainloop()` - the standard pattern
+  for a modal child dialog inside a host app's already-running event loop.
+  All 5 dialog classes (FolderSelectDialog, NodePromptDialog,
+  LiftParamsDialog, CiiPollingDialog, ElementOverrideDialog) and their
+  convenience wrappers (`prompt_folder`, `prompt_nodes`,
+  `prompt_lift_params`, `poll_for_cii`, `prompt_element_override`) now take
+  an optional trailing `parent` parameter. `show_message` (a native Win32
+  `MessageBoxW`, not a Tkinter dialog) is out of scope - untouched.
+  Verified: `py_compile` clean; since this Linux container has no real
+  `tkinter` (confirmed - `import tkinter` fails outright, and installing
+  `python3-tk` via apt targets a different Python build than the one this
+  project runs on, so a real Tk window genuinely cannot be instantiated
+  here), wrote a targeted logic test that `exec`s just the two new helper
+  functions' own source against a fake `tk` module recording calls -
+  confirms `parent=None` produces exactly `[mainloop()]` and a given
+  `parent` produces exactly `[transient(parent), grab_set(), wait_window()]`
+  with no second mainloop. `neutral_reader/writer/patcher.py` and
+  `iecho.py` untouched, per SPEC.md's milestone-3 scope. **Still
+  unverified** (needs a real Windows/Tkinter session): that a dialog
+  actually renders and behaves correctly end-to-end, in both the
+  standalone exe and (once Milestone 4 wires a caller) embedded in a host
+  window - flagged in TESTING.md.
