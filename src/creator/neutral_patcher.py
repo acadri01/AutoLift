@@ -6,6 +6,43 @@ Applies live-lift modifications to a parsed NeutralModel:
   1. For each lifted node, identifies the upstream and downstream elements.
      Only the OUTERMOST elements of the lifted group are split.
 
+     The immediate neighbour isn't always the one actually split: a rigid
+     element, a reducer, or an expansion joint can't carry an imposed
+     displacement; an element with ANY vertical component (a riser, not a
+     horizontal run - see _vertical_component and IZUP below) isn't
+     suitable for a lift point either; and a bend at EITHER end of an
+     element eats into its valid placement zone (T = R * tan(deflection/2),
+     deflection computed from the adjacent elements' own geometry, never
+     the #$ BEND record's angle fields - see reference/README.md for why).
+     A far bend (the end being walked toward) caps how far into the element
+     a placement can go; a near bend (the end just arrived at, typically
+     after a skip) sets a minimum distance from that end - both are
+     checked, not just the far one (checking only the far end was a real
+     bug: it let a placement land inside a bend's own tangent zone).
+
+     "Distance from the RESTRAINED node" means straight-line distance in
+     the HORIZONTAL PLANE (per direct instruction, 2026-09-14) - not
+     cumulative walked path length, which only agrees with it on a
+     dead-straight run. The walk tracks its horizontal-plane position
+     relative to the support and solves, on each candidate element, for
+     the point where that distance equals the requested spacing (see
+     _walk_to_flexible_element/_horizontal_delta). An element whose valid
+     zone never crosses that distance - too short, or a bend's clearance
+     eats the crossing point - is skipped just like a rigid element, and
+     the walk continues outward; there is NO clamping. Only if the whole
+     pipe run is exhausted on a side without finding a fit does that side
+     fall back to asking the user for the element to use (or, headless,
+     the existing warn-and-place-at-midpoint behaviour) - and only for the
+     side(s) actually exhausted; if a single lifted node's upstream AND
+     downstream both come up empty at once, one combined dialog asks for
+     both (see _resolve_splits_for_node/_resolve_via_override). A SIF/tee
+     pointer on the chosen element is warned about, not skipped past.
+
+     "Vertical" depends on the file's own IZUP flag (#$ CONTROL) - CAESAR
+     II lets a model use either global -Y or global -Z as vertical, and
+     real files in the wild use both (confirmed: reference sample files use
+     each convention) - so this is read per file, never assumed.
+
   2. Splits each outer element at a point 'spacing_mm' from the lifted node,
      inserting a new displacement node. New node number = midpoint rule:
          new_node = from_node + round((to_node - from_node) / 2)
@@ -56,9 +93,20 @@ from ui_dialogs import NodeLiftParams
 
 FREE = 9999.99
 # Spec layout is VECTOR-major: [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,..., DX9,...,RZ9]
-# DY of vector N is at 0-based index (N-1)*6 + 1
-# We apply displacement in Y (DY) of vector 3: index (3-1)*6 + 1 = 13
-DISP_DOF_INDEX = 13         # 0-based index in the 54-value array for DY of vector 3
+# DY of vector N is at 0-based index (N-1)*6 + 1; DZ of vector N is (N-1)*6 + 2.
+# The "lift" displacement is applied in vector 3, along whichever axis this
+# file's own IZUP flag (#$ CONTROL - see _read_izup) marks as vertical: DY
+# for IZUP=0, DZ for IZUP=1. Getting this wrong applies the displacement
+# sideways instead of vertically on a Z-vertical file - see
+# _displ_dof_index and QUESTIONS.md's now-resolved "Stop-and-ask" entry.
+DISP_DOF_INDEX_Y = 13       # 0-based index in the 54-value array for DY of vector 3
+DISP_DOF_INDEX_Z = 14       # 0-based index in the 54-value array for DZ of vector 3
+
+
+def _displ_dof_index(izup: int) -> int:
+    """Which 0-based slot in the 54-value DOF array carries the lift
+    displacement, for this file's own vertical axis (see _read_izup)."""
+    return DISP_DOF_INDEX_Z if izup == 1 else DISP_DOF_INDEX_Y
 BLOCK_LINES = 15            # every element block is exactly 15 lines
 REAL_LINES = 9              # lines 0-8: real data
 STRING_LINES = 2            # lines 9-10: name + line number
@@ -187,6 +235,36 @@ def _unit_vector(e: Element) -> Tuple[float, float, float]:
     return (e.dx / L, e.dy / L, e.dz / L)
 
 
+_VERTICAL_EPS_MM = 1e-6   # floating-point noise guard, not a physical tolerance
+
+
+def _vertical_component(e: Element, izup: int) -> float:
+    """The element's rise/drop (mm) along whichever axis this file's IZUP
+    flag (see _read_izup) marks as vertical: global Y if izup==0, global Z
+    if izup==1."""
+    return e.dz if izup == 1 else e.dy
+
+
+def _is_vertical(e: Element, izup: int) -> bool:
+    """True if the element has ANY vertical component at all - not just a
+    dominant one. A lift point needs a horizontal run to sit on; a riser
+    (however slight the rise) isn't a candidate."""
+    return abs(_vertical_component(e, izup)) > _VERTICAL_EPS_MM
+
+
+def _horizontal_delta(e: Element, izup: int) -> Tuple[float, float]:
+    """The element's (n_from -> n_to) delta (mm) projected onto the
+    horizontal plane - the two global axes this file's IZUP flag does NOT
+    mark as vertical (see _vertical_component/_read_izup): (dx, dz) when Y
+    is vertical, (dx, dy) when Z is vertical.
+
+    Used to track a walk's actual horizontal-plane position relative to the
+    support node (see _walk_to_flexible_element) - "distance from the
+    support", per direct instruction (2026-09-14), means straight-line
+    distance in the horizontal plane, not cumulative walked path length."""
+    return (e.dx, e.dy) if izup == 1 else (e.dx, e.dz)
+
+
 def _midpoint_node(n_from: int, n_to: int) -> int:
     return n_from + round((n_to - n_from) / 2)
 
@@ -213,6 +291,364 @@ def _downstream_element(node: int, elements: List[Element]) -> Optional[Element]
 
 
 # ---------------------------------------------------------------------------
+# Element auxiliary flags: rigid / reducer / expansion joint / SIF / bend
+# ---------------------------------------------------------------------------
+# IEL pointer indices within the 17-value array _scan_element_blocks produces
+# (2 leading colour/visibility items + the 15 documented auxiliary pointers).
+# Confirmed against CAESAR II's own "CAESAR II Neutral File" Users Guide
+# chapter (reference/NeutralFile-v15.pdf, "#$ ELEMENTS" -> IEL array
+# description) - the same mapping _split_block's own TO_NODE_IDXS comment
+# already uses; named here for the skip/clearance logic below.
+BEND_PTR_IDX = 2
+RIGID_PTR_IDX = 3
+EXPJT_PTR_IDX = 4
+SIF_PTR_IDX = 12       # "Intersection Auxiliary field" in the vendor doc = SIF&TEES
+REDUCER_PTR_IDX = 14
+
+# #$ BEND: a fixed 3-line, 14-value record per bend (radius, weld type, three
+# (angle, node) tangent-point pairs, miter count, fitting thickness, seam-weld
+# flag, K factor, weld-strength-reduction factor, overlay thickness).
+# Confirmed against real #$ BEND bytes, not just the vendor doc's prose - see
+# reference/README.md. Only the radius (item 1) is used here: the "angle to
+# node position #N" fields are not reliably understood (the same value
+# repeats across bends of visibly different orientations in every real
+# sample checked), so the actual bend deflection angle used for clearance
+# below is computed from the adjacent elements' own geometry instead - see
+# _bend_deflection_deg.
+BEND_RECORD_LEN = 14
+
+
+def _read_izup(lines: List[str]) -> int:
+    """
+    Read the IZUP vertical-axis flag from #$ CONTROL.
+
+    Layout (confirmed against real sample files, not just the vendor doc -
+    reference/NeutralFile-v15.pdf's own prose crams the IZUP description
+    into the middle of an unrelated bullet, so the byte layout is the
+    reliable source here): after the NUMELT/NUMNOZ/NOHGRS/NONAM/NORED/
+    NUMFLG line (6 values), the file writes a 13-value auxiliary-data-count
+    array in FORTRAN (2X, 6I13) - i.e. 6 values, 6 values, then a FINAL
+    line with just the 13th value on its own. That 13th value is IZUP:
+    0 = global -Y axis vertical, 1 = global -Z axis vertical. Both
+    conventions appear in real files (confirmed: one reference sample uses
+    each), so this must be read per file, never assumed to be 0.
+
+    Defaults to 0 (Y vertical, the more common convention) if the file is
+    too short/malformed to find it - this flag is advisory (only used to
+    decide which delta counts as "vertical" for element-suitability
+    checks), so a safe default beats raising.
+    """
+    start = find_section(lines, "#$ CONTROL")
+    if start is None:
+        return 0
+    six_value_lines: List[int] = []
+    for i in range(start + 1, len(lines)):
+        if lines[i].lstrip().startswith("#$"):
+            return 0
+        toks = _INT_RE.findall(lines[i])
+        if len(toks) == 6:
+            six_value_lines.append(i)
+            if len(six_value_lines) == 3:
+                # IZUP is the single value on the next line
+                for j in range(i + 1, len(lines)):
+                    if lines[j].lstrip().startswith("#$"):
+                        return 0
+                    jtoks = _INT_RE.findall(lines[j])
+                    if jtoks:
+                        return int(jtoks[0])
+                return 0
+    return 0
+
+
+def _read_bend_radii(lines: List[str]) -> Dict[int, float]:
+    """1-based #$ BEND record pointer -> bend radius (record item 1, mm)."""
+    start = find_section(lines, "#$ BEND")
+    if start is None:
+        return {}
+    end = find_next_section_start(lines, start)
+    vals: List[float] = []
+    for ln in lines[start + 1:end]:
+        if ln.strip():
+            vals.extend(float(t) for t in _SCI_RE.findall(ln))
+    radii: Dict[int, float] = {}
+    for i in range(len(vals) // BEND_RECORD_LEN):
+        radii[i + 1] = vals[i * BEND_RECORD_LEN]
+    return radii
+
+
+def _bend_corner_radii(
+    blocks: List["ElementBlock"], bend_radii: Dict[int, float]
+) -> Dict[int, float]:
+    """
+    node -> bend radius, for every real model node that is a bend corner.
+
+    The corner node is the ToNode of whichever element carries that bend's
+    pointer (IEL[BEND_PTR_IDX]) - NOT the #$ BEND record's own "node
+    position" fields, which are CAESAR's separate, synthetic near/far
+    tangent-point node numbers and never appear as a real element endpoint.
+    """
+    out: Dict[int, float] = {}
+    for b in blocks:
+        ptr = b.iel[BEND_PTR_IDX] if len(b.iel) > BEND_PTR_IDX else 0
+        if ptr > 0 and ptr in bend_radii:
+            out[b.n_to] = bend_radii[ptr]
+    return out
+
+
+def _bend_deflection_deg(
+    in_vec: Tuple[float, float, float], out_vec: Tuple[float, float, float]
+) -> float:
+    """
+    Deflection (turn) angle in degrees between two unit direction vectors:
+    the element arriving at a bend corner and the element leaving it.
+
+    0 deg = straight through, 90 deg = a right-angle elbow, 180 deg = a full
+    reversal. This is the dot product angle directly - NOT 180 minus it -
+    since a straight run has parallel vectors (dot=1, angle=0 -> no bend)
+    and a right-angle elbow has perpendicular vectors (dot=0, angle=90),
+    which already matches the elbow's own deflection angle.
+    """
+    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(in_vec, out_vec))))
+    return math.degrees(math.acos(dot))
+
+
+def _bend_tangent_length_mm(radius_mm: float, deflection_deg: float) -> float:
+    """Minimum required straight length on EACH side of a bend - standard
+    circular-elbow tangent geometry: T = R * tan(deflection / 2)."""
+    return radius_mm * math.tan(math.radians(deflection_deg) / 2.0)
+
+
+def _bend_tangent_at_node(
+    node: int,
+    elements: List[Element],
+    bend_radius_at: Dict[int, float],
+) -> Tuple[float, Optional[float], Optional[float]]:
+    """
+    If `node` is a bend corner, return (tangent_mm, radius_mm, deflect_deg) -
+    the minimum straight length required on EITHER side of that bend,
+    computed from the two elements meeting there (see _bend_deflection_deg -
+    the corner's own geometry, never the #$ BEND record's angle fields).
+    Returns (0.0, None, None) if `node` isn't a bend corner, or its adjacent
+    elements can't both be found (can't compute a deflection without both).
+    """
+    radius = bend_radius_at.get(node)
+    if not radius:
+        return 0.0, None, None
+    into_elem = _upstream_element(node, elements)
+    out_elem = _downstream_element(node, elements)
+    if into_elem is None or out_elem is None:
+        return 0.0, None, None
+    deflect = _bend_deflection_deg(_unit_vector(into_elem), _unit_vector(out_elem))
+    return _bend_tangent_length_mm(radius, deflect), radius, deflect
+
+
+def _walk_to_flexible_element(
+    start_node: int,
+    side: str,                                    # "upstream" | "downstream"
+    target_mm: float,
+    elements: List[Element],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
+    warnings: List[str],
+    izup: int = 0,
+) -> Optional[Tuple[Element, float, int]]:
+    """
+    Walk outward from start_node (the support/lift node) in `side` direction
+    to find a point whose HORIZONTAL-PLANE straight-line distance from
+    start_node equals target_mm, on an element that can actually carry a
+    displacement (per direct instruction, 2026-09-14 - replacing the
+    cumulative walked-path-length model used until then, which only agreed
+    with straight-line distance on a dead-straight run; once a bend or
+    riser is walked through, "750 mm from the support" must mean 750 mm
+    measured directly, not 750 mm of pipe walked):
+
+      - a rigid element, a reducer, or an expansion joint can't carry an
+        imposed displacement, so each is skipped in favour of the next
+        element further out.
+      - an element with ANY vertical component (per this file's IZUP flag -
+        see _read_izup/_vertical_component) is skipped the same way - a
+        lift point needs a horizontal run to sit on, not a riser. Since a
+        skipped element never hosts the placement, only its horizontal-
+        plane projection (_horizontal_delta) matters for tracking position;
+        its vertical rise contributes nothing to horizontal distance.
+      - a SIF/tee pointer on the chosen element is warned about, not
+        skipped past - it's still eligible for the split.
+      - if EITHER end of a candidate element is a bend corner, that bend's
+        minimum required tangent length is computed from the adjacent
+        elements' own geometry (see _bend_deflection_deg - never from the
+        #$ BEND record's angle fields). A bend at the FAR end (away from
+        `node`, i.e. the direction being walked toward) caps how far into
+        the element a placement can go; a bend at the NEAR end (`node`
+        itself) sets a MINIMUM distance a placement must be from that end.
+        Both ends are checked (checking only the far end was a real bug,
+        fixed 2026-09-09).
+      - on each candidate element, the horizontal position at parameter s
+        (distance from `node` along the walk direction) is
+        `pos + s * u`, where `pos` is the walked-so-far horizontal offset
+        from start_node and `u` is the element's horizontal-plane unit
+        direction vector (length exactly 1, since a candidate element has
+        already been confirmed non-vertical). Solving
+        `|pos + s*u| == target_mm` is a quadratic in s with leading
+        coefficient 1; if a root falls inside this element's valid zone
+        (past any near-bend clearance, short of any far-bend clearance),
+        that's the placement. If not - the element doesn't reach that
+        horizontal distance at all, or only within a bend's clearance zone -
+        it's skipped just like a rigid element, and the walk continues
+        outward. There is no fallback clamp: if the whole pipe run is
+        exhausted without a fit, this returns None and the caller falls
+        back to asking the user (see _resolve_splits_for_node).
+
+    Returns (element, local_spacing_mm, far_node), where local_spacing_mm
+    is the along-element distance from `node` (NOT a horizontal distance -
+    see SplitSpec.spacing_mm/_split_block) at which the horizontal-plane
+    distance from start_node equals target_mm.
+    Returns None if the chain runs out or loops, or if no element anywhere
+    on this side reaches target_mm within a valid placement zone.
+    """
+    node = start_node
+    sign = -1.0 if side == "upstream" else 1.0
+    pos_h1 = 0.0
+    pos_h2 = 0.0
+    seen: Set[Tuple[int, int]] = set()
+
+    while True:
+        e = (_upstream_element(node, elements) if side == "upstream"
+             else _downstream_element(node, elements))
+        if e is None:
+            return None
+        key = (e.n_from, e.n_to)
+        if key in seen:
+            return None                    # malformed/looping model - bail out
+        seen.add(key)
+
+        iel = iel_by_pair.get(key, [])
+
+        def _flag(idx: int) -> bool:
+            return len(iel) > idx and iel[idx] > 0
+
+        far_node = e.n_from if side == "upstream" else e.n_to
+
+        h1, h2 = _horizontal_delta(e, izup)   # full element delta, n_from -> n_to
+
+        if _flag(RIGID_PTR_IDX) or _flag(REDUCER_PTR_IDX) or _flag(EXPJT_PTR_IDX):
+            kind = ("a rigid element" if _flag(RIGID_PTR_IDX) else
+                    "a reducer" if _flag(REDUCER_PTR_IDX) else "an expansion joint")
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} is {kind} — a displacement "
+                f"point can't be placed on it. Skipped toward the next "
+                f"plain pipe element.")
+            pos_h1 += sign * h1
+            pos_h2 += sign * h2
+            node = far_node
+            continue
+
+        if _is_vertical(e, izup):
+            axis = "Z" if izup == 1 else "Y"
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has a vertical component "
+                f"({_vertical_component(e, izup):+.1f} mm along global {axis}, "
+                f"vertical for this file) — not a horizontal run a lift "
+                f"point can sit on. Skipped toward the next element.")
+            pos_h1 += sign * h1
+            pos_h2 += sign * h2
+            node = far_node
+            continue
+
+        if _flag(SIF_PTR_IDX):
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has a SIF/tee pointer — "
+                f"verify this lift point placement is acceptable.")
+
+        L = _element_length(e)
+
+        # A bend can sit at EITHER end of this element - the far end (the
+        # corner we're walking toward) restricts how far INTO this element a
+        # placement can go; a bend at the near end (`node` - where the walk
+        # just arrived, e.g. the far end of an element skipped the hop
+        # before) restricts how close to the START of this element a
+        # placement can be. Missing the near-end case was a real bug: it let
+        # a placement land exactly on/inside a bend's own tangent zone
+        # whenever a skip (rigid/vertical/too-short/etc.) landed the walk
+        # right next to one - reported 2026-09-09 ("this caused a bend to
+        # break"). Both must be checked for every candidate element.
+        tangent_far, radius_far, deflect_far = _bend_tangent_at_node(
+            far_node, elements, bend_radius_at)
+        tangent_near, radius_near, deflect_near = _bend_tangent_at_node(
+            node, elements, bend_radius_at)
+
+        valid_max = L - tangent_far    # furthest a placement can be from `node`
+        valid_min = tangent_near       # closest a placement can be to `node`
+
+        bend_note = ""
+        if radius_far is not None:
+            bend_note += (
+                f" (a bend at node {far_node} - radius {radius_far:.0f} mm, "
+                f"{deflect_far:.1f}° turn - needs {tangent_far:.0f} mm "
+                f"clearance from that end)")
+        if radius_near is not None:
+            bend_note += (
+                f" (a bend at node {node} - radius {radius_near:.0f} mm, "
+                f"{deflect_near:.1f}° turn - needs {tangent_near:.0f} mm "
+                f"clearance from that end)")
+
+        if valid_min > valid_max:
+            # Bends at both ends (or one very close, tight-radius bend) eat
+            # up the entire element - there is no valid placement zone on it
+            # at all, regardless of what distance was requested. Skipped
+            # just like a rigid element.
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} has no valid placement zone at "
+                f"all{bend_note} on a {L:.0f} mm element — skipped toward "
+                f"the next element.")
+            pos_h1 += sign * h1
+            pos_h2 += sign * h2
+            node = far_node
+            continue
+
+        # Horizontal-plane unit vector of the walk direction (node -> far_node).
+        # Since this element already passed the vertical check above, its
+        # horizontal projection has the SAME length as the element itself -
+        # (u1, u2) is a genuine 2D unit vector.
+        u1 = sign * h1 / L
+        u2 = sign * h2 / L
+
+        # Solve |pos + s*u| == target_mm for s: a quadratic with leading
+        # coefficient (u1^2+u2^2) == 1 by construction (see above).
+        b = 2.0 * (pos_h1 * u1 + pos_h2 * u2)
+        c = pos_h1 ** 2 + pos_h2 ** 2 - target_mm ** 2
+        disc = b * b - 4.0 * c
+
+        chosen_s: Optional[float] = None
+        if disc >= 0.0:
+            sqrt_d = math.sqrt(disc)
+            for s in sorted(((-b - sqrt_d) / 2.0, (-b + sqrt_d) / 2.0)):
+                if valid_min - 1e-6 <= s <= valid_max + 1e-6:
+                    chosen_s = min(max(s, valid_min), valid_max)
+                    break
+
+        if chosen_s is None:
+            # This element's line never crosses the target horizontal
+            # distance within its valid placement zone - whether because
+            # the element (and everything walked so far) is too short to
+            # reach that far, a bend's clearance eats the crossing point, or
+            # the walk has already passed target_mm before reaching here.
+            # Per direct instruction (2026-09-14): never clamp to the
+            # nearest valid point - skip this element, exactly like a rigid
+            # element, and keep walking outward for a genuine fit.
+            warnings.append(
+                f"Element {e.n_from}→{e.n_to} doesn't reach a horizontal-"
+                f"plane distance of {target_mm:.0f} mm from node {start_node} "
+                f"within its valid placement zone{bend_note or f' (element length {L:.0f} mm)'} "
+                f"— skipped toward the next element.")
+            pos_h1 += sign * h1
+            pos_h2 += sign * h2
+            node = far_node
+            continue
+
+        return e, chosen_s, far_node
+
+
+# ---------------------------------------------------------------------------
 # Split specification
 # ---------------------------------------------------------------------------
 
@@ -226,6 +662,60 @@ class SplitSpec:
     _disp_ptr: int = 0      # assigned by patch_model before use
 
 
+def _resolve_splits_for_node(
+    lifted: int,
+    sides: Tuple[str, ...],
+    node_spacing: float,
+    elements: List[Element],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
+    existing_nodes: Set[int],
+    on_override: Optional[Callable],
+    warnings: List[str],
+    izup: int = 0,
+) -> List[SplitSpec]:
+    """
+    Try the geometric walk on every side this lifted node needs split
+    (upstream, downstream, or both), THEN - and only then - decide whether
+    the user needs to be asked anything (per direct instruction, 2026-09-14:
+    the walk itself never clamps or falls back on its own; only after both
+    sides have had a genuine, independent chance to succeed does this look
+    at what's left over).
+
+    A side that found a fit becomes a SplitSpec directly. Any side(s) that
+    came back empty are resolved together in a SINGLE override call (see
+    _resolve_via_override) - one dialog with only the field(s) actually
+    needed, or both fields together only when a single lifted node's
+    upstream AND downstream walks are both exhausted at once.
+    """
+    found = {
+        side: _walk_to_flexible_element(
+            lifted, side, node_spacing, elements, iel_by_pair,
+            bend_radius_at, warnings, izup)
+        for side in sides
+    }
+
+    splits: List[SplitSpec] = []
+    for side in sides:
+        result = found[side]
+        if result is None:
+            continue
+        elem, s, _far_node = result
+        candidate = _midpoint_node(elem.n_from, elem.n_to)
+        direction = -1 if side == "upstream" else +1
+        new_node = _free_node(candidate, existing_nodes, direction)
+        existing_nodes.add(new_node)
+        splits.append(SplitSpec(elem, lifted, new_node, s, side))
+
+    exhausted = tuple(side for side in sides if found[side] is None)
+    if exhausted:
+        splits.extend(_resolve_via_override(
+            lifted, exhausted, node_spacing, elements,
+            existing_nodes, on_override, warnings))
+
+    return splits
+
+
 def _determine_splits(
     lifted_nodes: List[int],
     elements: List[Element],
@@ -233,6 +723,9 @@ def _determine_splits(
     existing_nodes: Set[int],
     on_override: Optional[Callable],
     warnings: List[str],
+    iel_by_pair: Dict[Tuple[int, int], List[int]],
+    bend_radius_at: Dict[int, float],
+    izup: int = 0,
 ) -> List[SplitSpec]:
     sorted_nodes = sorted(lifted_nodes)
     splits: List[SplitSpec] = []
@@ -243,109 +736,109 @@ def _determine_splits(
         is_last  = (i == n - 1)
 
         # Only outermost elements are split
-        do_upstream   = is_first
-        do_downstream = is_last
+        sides = tuple(s for s, want in
+                      (("upstream", is_first), ("downstream", is_last)) if want)
+        if not sides:
+            continue
 
-        up_elem = _upstream_element(lifted, elements)
-        dn_elem = _downstream_element(lifted, elements)
         node_spacing, _ = params_for(lifted)
-
-        if do_upstream:
-            if up_elem is None:
-                warnings.append(
-                    f"Node {lifted}: no upstream element found — upstream split skipped.")
-            else:
-                L = _element_length(up_elem)
-                candidate = _midpoint_node(up_elem.n_from, up_elem.n_to)
-                new_node  = _free_node(candidate, existing_nodes, direction=-1)
-
-                if L < node_spacing:
-                    problem = (
-                        f"Upstream element {up_elem.n_from}→{up_elem.n_to} "
-                        f"is {L:.0f} mm — shorter than spacing {node_spacing:.0f} mm.")
-                    sp = _handle_short(
-                        problem, lifted, up_elem, dn_elem,
-                        new_node, node_spacing, "upstream",
-                        elements, existing_nodes, on_override, warnings,
-                    )
-                else:
-                    existing_nodes.add(new_node)
-                    sp = SplitSpec(up_elem, lifted, new_node, node_spacing, "upstream")
-
-                if sp:
-                    splits.append(sp)
-
-        if do_downstream:
-            if dn_elem is None:
-                warnings.append(
-                    f"Node {lifted}: no downstream element found — downstream split skipped.")
-            else:
-                L = _element_length(dn_elem)
-                candidate = _midpoint_node(dn_elem.n_from, dn_elem.n_to)
-                new_node  = _free_node(candidate, existing_nodes, direction=+1)
-
-                if L < node_spacing:
-                    problem = (
-                        f"Downstream element {dn_elem.n_from}→{dn_elem.n_to} "
-                        f"is {L:.0f} mm — shorter than spacing {node_spacing:.0f} mm.")
-                    sp = _handle_short(
-                        problem, lifted, up_elem, dn_elem,
-                        new_node, node_spacing, "downstream",
-                        elements, existing_nodes, on_override, warnings,
-                    )
-                else:
-                    existing_nodes.add(new_node)
-                    sp = SplitSpec(dn_elem, lifted, new_node, node_spacing, "downstream")
-
-                if sp:
-                    splits.append(sp)
+        splits.extend(_resolve_splits_for_node(
+            lifted, sides, node_spacing, elements, iel_by_pair,
+            bend_radius_at, existing_nodes, on_override, warnings, izup))
 
     return splits
 
 
-def _handle_short(
-    problem, lifted, up_elem, dn_elem,
-    new_node, spacing_mm, side,
-    elements, existing_nodes, on_override, warnings,
-) -> Optional[SplitSpec]:
+def _resolve_via_override(
+    lifted: int,
+    sides: Tuple[str, ...],
+    node_spacing: float,
+    elements: List[Element],
+    existing_nodes: Set[int],
+    on_override: Optional[Callable],
+    warnings: List[str],
+) -> List[SplitSpec]:
+    """
+    Resolve whichever side(s) the geometric walk couldn't fit, via a single
+    combined override call - not one dialog per side (per direct
+    instruction, 2026-09-14: the user should only be prompted for the
+    side(s) that actually need manual input; both fields together only when
+    both are exhausted at once).
+    """
+    problems = {
+        side: (
+            f"No {side} element reaching a horizontal-plane distance of "
+            f"{node_spacing:.0f} mm from node {lifted} was found — every "
+            f"candidate was too short, a rigid element / reducer / "
+            f"expansion joint / vertical run, or fully consumed by a "
+            f"bend's clearance, all the way to the end of the pipe run.")
+        for side in sides
+    }
+    combined_problem = "\n".join(problems[s] for s in sides)
+
+    up_disp = _upstream_element(lifted, elements) if "upstream" in sides else None
+    dn_disp = _downstream_element(lifted, elements) if "downstream" in sides else None
+
     if on_override:
-        override = on_override(
-            lifted_node=lifted,
-            upstream_from=up_elem.n_from if up_elem else lifted,
-            upstream_to=up_elem.n_to if up_elem else lifted,
-            downstream_from=dn_elem.n_from if dn_elem else lifted,
-            downstream_to=dn_elem.n_to if dn_elem else lifted,
-            problem=problem,
-        )
+        kwargs = dict(lifted_node=lifted, problem=combined_problem, sides=sides)
+        if "upstream" in sides:
+            kwargs["upstream_from"] = up_disp.n_from if up_disp else lifted
+            kwargs["upstream_to"] = up_disp.n_to if up_disp else lifted
+        if "downstream" in sides:
+            kwargs["downstream_from"] = dn_disp.n_from if dn_disp else lifted
+            kwargs["downstream_to"] = dn_disp.n_to if dn_disp else lifted
+
+        override = on_override(**kwargs)
         if override is None:
-            warnings.append(f"Node {lifted}: {side} override cancelled — split skipped.")
-            return None
+            warnings.append(
+                f"Node {lifted}: override cancelled for "
+                f"{', '.join(sides)} — split(s) skipped.")
+            return []
 
-        if side == "upstream":
+        results: List[SplitSpec] = []
+        for side in sides:
+            of, ot = ((override.upstream_from, override.upstream_to)
+                      if side == "upstream" else
+                      (override.downstream_from, override.downstream_to))
+            if of is None or ot is None:
+                warnings.append(
+                    f"Node {lifted}: no {side} element given in override — "
+                    f"{side} split skipped.")
+                continue
             ov_elem = next((e for e in elements
-                            if e.n_from == override.upstream_from
-                            and e.n_to == override.upstream_to), None)
-        else:
-            ov_elem = next((e for e in elements
-                            if e.n_from == override.downstream_from
-                            and e.n_to == override.downstream_to), None)
+                            if e.n_from == of and e.n_to == ot), None)
+            if ov_elem is None:
+                warnings.append(
+                    f"Node {lifted}: overridden {side} element {of}→{ot} "
+                    f"not found — {side} split skipped.")
+                continue
 
-        if ov_elem is None:
-            warnings.append(f"Node {lifted}: overridden element not found — split skipped.")
-            return None
+            cand = _midpoint_node(ov_elem.n_from, ov_elem.n_to)
+            direction = -1 if side == "upstream" else +1
+            nn = _free_node(cand, existing_nodes, direction)
+            existing_nodes.add(nn)
+            results.append(SplitSpec(ov_elem, lifted, nn, node_spacing, side))
+        return results
 
-        cand = _midpoint_node(ov_elem.n_from, ov_elem.n_to)
-        direction = -1 if side == "upstream" else +1
-        nn = _free_node(cand, existing_nodes, direction)
-        existing_nodes.add(nn)
-        return SplitSpec(ov_elem, lifted, nn, spacing_mm, side)
-    else:
-        # No override callback — use element midpoint, warn
-        elem = up_elem if side == "upstream" else dn_elem
+    # No override callback — best-effort headless fallback: place at the
+    # midpoint of the immediate neighbour on each exhausted side, and warn
+    # (no dialog is possible without on_override).
+    results = []
+    for side in sides:
+        elem = up_disp if side == "upstream" else dn_disp
+        if elem is None:
+            warnings.append(
+                f"Node {lifted}: {problems[side]} No {side} element exists "
+                f"at all — {side} split skipped.")
+            continue
         L = _element_length(elem)
-        warnings.append(problem + f" Displacement node placed at element midpoint.")
+        candidate = _midpoint_node(elem.n_from, elem.n_to)
+        direction = -1 if side == "upstream" else +1
+        new_node = _free_node(candidate, existing_nodes, direction)
         existing_nodes.add(new_node)
-        return SplitSpec(elem, lifted, new_node, min(spacing_mm, L * 0.5), side)
+        warnings.append(problems[side] + " Displacement node placed at element midpoint.")
+        results.append(SplitSpec(elem, lifted, new_node, min(node_spacing, L * 0.5), side))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +1062,7 @@ def _build_displmnt_record(
     node: int,
     displacement_mm: float,
     version: str,
+    izup: int = 0,
 ) -> List[str]:
     """
     20 lines per displacement auxiliary block (2 slots x 10 lines each).
@@ -577,13 +1071,14 @@ def _build_displmnt_record(
       Line 1    : node number on its own line  "  " + G13.6
       Lines 2-10: 54 DOF values in 9 lines of 6
 
-    DOF-major storage order (matches Caesar display):
-      values  1-9:  DX for vectors 1-9
-      values 10-18: DY for vectors 1-9  <- DY vec3 = value 12
-      values 19-27: DZ for vectors 1-9
-      values 28-36: RX for vectors 1-9
-      values 37-45: RY for vectors 1-9
-      values 46-54: RZ for vectors 1-9
+    VECTOR-major storage order:
+      [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,DZ2,RX2,RY2,RZ2, ..., DX9,...,RZ9]
+      one line of 6 values per vector - see _dof_lines below.
+
+    The lift displacement is applied in vector 3, along whichever axis this
+    file's own IZUP flag marks as vertical (see _displ_dof_index) - DY for
+    IZUP=0, DZ for IZUP=1. Applying it to DY unconditionally would push the
+    pipe sideways instead of lifting it on a Z-vertical file.
 
     Slot 2: node = 0, all FREE.
     """
@@ -607,14 +1102,15 @@ def _build_displmnt_record(
     def _vec_line(vals: List[float]) -> str:
         return "  " + "".join(_fmt_val(v) for v in vals) + "\n"
 
+    dof_index = _displ_dof_index(izup)
+
     def _dof_lines(apply_disp: bool) -> List[str]:
         # Spec layout is VECTOR-major:
         # [DX1,DY1,DZ1,RX1,RY1,RZ1, DX2,DY2,DZ2,RX2,RY2,RZ2, ..., DX9,...,RZ9]
         # Written as 9 lines of 6 values (one line per vector).
-        # DY of vector 3 = 0-based index (3-1)*6 + 1 = 13 = DISP_DOF_INDEX
         vals54: List[float] = [F] * 54
         if apply_disp:
-            vals54[DISP_DOF_INDEX] = D
+            vals54[dof_index] = D
 
         out = []
         for i in range(0, 54, 6):
@@ -818,6 +1314,20 @@ def patch_model(
         {e.n_to   for e in model.elements}
     )
 
+    # ── 0. Scan element blocks (fixed stride) — moved ahead of split
+    # determination so the rigid/reducer/expansion-joint/bend-aware element
+    # selection below can inspect each element's IEL pointers and any bend's
+    # radius before deciding what to split. ───────────────────────────────────
+    blocks = _scan_element_blocks(lines)
+    block_map: Dict[Tuple[int, int], ElementBlock] = {
+        (b.n_from, b.n_to): b for b in blocks
+    }
+    iel_by_pair: Dict[Tuple[int, int], List[int]] = {
+        (b.n_from, b.n_to): b.iel for b in blocks
+    }
+    bend_radius_at = _bend_corner_radii(blocks, _read_bend_radii(lines))
+    izup = _read_izup(lines)
+
     # ── 1. Determine splits ──────────────────────────────────────────────────
     splits = _determine_splits(
         lifted_nodes=sorted(lifted_nodes),
@@ -826,17 +1336,14 @@ def patch_model(
         existing_nodes=set(existing_nodes),
         on_override=on_override,
         warnings=warnings,
+        iel_by_pair=iel_by_pair,
+        bend_radius_at=bend_radius_at,
+        izup=izup,
     )
 
     if not splits:
         warnings.append("No element splits were determined — model unchanged.")
         return PatchResult(modified_lines=lines, warnings=warnings)
-
-    # ── 2. Scan element blocks (fixed stride) ────────────────────────────────
-    blocks = _scan_element_blocks(lines)
-    block_map: Dict[Tuple[int, int], ElementBlock] = {
-        (b.n_from, b.n_to): b for b in blocks
-    }
 
     # ── 3. Count existing displacement records before any changes ────────────
     existing_disp_count = _count_existing_displmnt_records(lines)
@@ -910,7 +1417,7 @@ def patch_model(
         new_disp_nodes.append(sp.new_node)
         _, sp_disp_mm = _params_for(sp.lifted_node)
         disp_records.append(
-            _build_displmnt_record(sp.new_node, sp_disp_mm, model.version)
+            _build_displmnt_record(sp.new_node, sp_disp_mm, model.version, izup)
         )
         lift_points.append(LiftPointInfo(
             lift_node=sp.new_node,

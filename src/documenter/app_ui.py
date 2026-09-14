@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Dict, Optional
 
 import markup_weights_ui
@@ -63,8 +64,10 @@ def _is_archive_line(row) -> bool:
 
 class DocumenterApp(tk.Tk):
     """
-    focus: ("wo", wo_id)  or  ("line", wo_id, line_id)
-    Decides what the tree starts with and which panel opens first.
+    focus: ("wo", wo_id)  or  ("line", wo_id, line_id)  or  ("root",)
+    Decides what the tree starts with and which panel opens first. ("root",)
+    is for when the launching folder wasn't recognisable as either a line or
+    a work order - opens at the tree root, no DB record created for it.
     """
 
     def __init__(self, db: LiftDb, focus):
@@ -82,9 +85,11 @@ class DocumenterApp(tk.Tk):
         if focus[0] == "line":
             _, wo_id, line_id = focus
             self._seed_line_route(wo_id, line_id)
-        else:
+        elif focus[0] == "wo":
             _, wo_id = focus
             self._seed_wo(wo_id)
+        else:
+            self._seed_root()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(60, self._raise)
@@ -112,8 +117,16 @@ class DocumenterApp(tk.Tk):
 
         bar = ttk.Frame(left)
         bar.pack(side="top", fill="x", pady=(0, 4))
+        # One button, fixed location - label/action follow the tree
+        # selection (see _update_create_button): "New Work Order" at the
+        # root, "Add New Line" inside a work order, "New Lift Case"
+        # inside a line - per direct instruction, 2026-09-14.
+        self._create_context = ("wo", None)
+        self._create_btn = ttk.Button(bar, text="New Work Order",
+                                      command=self._on_create_button)
+        self._create_btn.pack(side="left")
         ttk.Button(bar, text="Refresh", width=12,
-                   command=self.refresh).pack(side="left")
+                   command=self.refresh).pack(side="left", padx=(4, 0))
         ttk.Button(bar, text="View archive",
                    command=self._open_archive).pack(side="left", padx=(4, 0))
 
@@ -318,6 +331,15 @@ class DocumenterApp(tk.Tk):
         self.nav.item(iid, open=True)
         self.nav.selection_set(iid)         # -> triggers WoPanel
 
+    def _seed_root(self):
+        """No specific line/WO was recognised at launch - show the tree root
+        (every real work order already in the database) so the user can
+        navigate to one themselves. Creates no DB record."""
+        self._populate(ROOT_IID)
+        self.nav.item(ROOT_IID, open=True)
+        self.nav.selection_set(ROOT_IID)
+        self._show_blank("Select a work order.")
+
     def _seed_line_route(self, wo_id: int, line_id: int):
         """Route to the top ONLY: root -> this WO -> this line."""
         wo = self.db.get_wo(wo_id)
@@ -342,6 +364,8 @@ class DocumenterApp(tk.Tk):
             self._populate(iid)
 
     def _on_select(self):
+        self._update_create_button()
+
         sel = self.nav.selection()
         if not sel:
             return
@@ -466,8 +490,14 @@ class DocumenterApp(tk.Tk):
             m.add_command(label="Archive work order",
                           command=lambda: self._archive_wo(int(sid)))
         elif kind == "line":
+            # Case creation now lives in the toolbar's context-sensitive
+            # "New Lift Case" button (see _update_create_button), not
+            # here - per direct instruction, 2026-09-14.
             m.add_command(label="Archive line",
                           command=lambda: self._archive_line(int(sid)))
+        elif kind == "case":
+            m.add_command(label="Archive case",
+                          command=lambda: self._archive_case(int(sid)))
         else:
             return
         try:
@@ -491,6 +521,205 @@ class DocumenterApp(tk.Tk):
         self.refresh()
         self.say(f"Work order {wo['wo_no']} archived.")
 
+    # ------------------------------------------------------------------
+    # New Work Order / Add New Line / New Lift Case - one button, its
+    # label and target following the tree selection. Per direct
+    # instruction, 2026-09-14: "the button location to be the same, but
+    # changing it out when the user goes through the tree."
+    # ------------------------------------------------------------------
+    _CREATE_LABELS = {
+        "wo": "New Work Order",
+        "line": "Add New Line",
+        "case": "New Lift Case",
+    }
+
+    def _update_create_button(self):
+        """Recompute what the toolbar's create button does next, from the
+        current tree selection. Called on every selection change."""
+        sel = self.nav.selection()
+        iid = sel[0] if sel else ROOT_IID
+
+        if iid == ROOT_IID or iid.endswith("::d") or ":" not in iid:
+            self._create_context = ("wo", None)
+        else:
+            kind, sid = iid.split(":", 1)
+            sid = int(sid)
+            if kind == "wo":
+                self._create_context = ("line", sid)
+            elif kind == "line":
+                self._create_context = ("case", sid)
+            elif kind == "case":
+                case = self.db.get_case(sid)
+                self._create_context = ("case", case["line_id"] if case else None)
+            elif kind == "iso":
+                iso = self.db.get_iso(sid)
+                self._create_context = ("case", iso["line_id"] if iso else None)
+            else:
+                self._create_context = ("wo", None)
+
+        self._create_btn.config(text=self._CREATE_LABELS[self._create_context[0]])
+
+    def _on_create_button(self):
+        kind, target_id = self._create_context
+        if kind == "wo":
+            self._create_work_order()
+        elif kind == "line":
+            self._create_line(target_id)
+        elif kind == "case" and target_id is not None:
+            self._create_lift_case(target_id)
+
+    def _infer_wo_parent_dir(self) -> Optional[str]:
+        """
+        Best-effort: the parent directory most existing work orders live
+        in, so a new one lands "in the correct path, as the rest of the
+        work orders" (per direct instruction, 2026-09-14) without asking.
+        None if there's nothing to infer from (no existing work order has
+        a folder yet) - the caller falls back to asking.
+        """
+        from collections import Counter
+        parents = [os.path.dirname(w["folder"].rstrip("\\/"))
+                  for w in self.db.wos(include_archived=True) if w["folder"]]
+        if not parents:
+            return None
+        return Counter(parents).most_common(1)[0][0]
+
+    def focus_wo(self, wo_id: int):
+        """Programmatic navigation to a work order (e.g. right after creating one)."""
+        wo = self.db.get_wo(wo_id)
+        if not wo:
+            return
+        iid = self._insert_wo(wo)
+        self.nav.selection_set(iid)
+        self.nav.see(iid)
+
+    def _create_work_order(self):
+        wo_no = simpledialog.askstring("New Work Order", "Work order number:", parent=self)
+        if not wo_no:
+            return
+        wo_no = wo_no.strip()
+        if not wo_no:
+            return
+        if any(w["wo_no"] == wo_no for w in self.db.wos(include_archived=True)):
+            messagebox.showerror("New Work Order",
+                                 f"Work order {wo_no} already exists.", parent=self)
+            return
+
+        parent_dir = self._infer_wo_parent_dir()
+        if parent_dir is None:
+            parent_dir = filedialog.askdirectory(
+                parent=self, title="Select the folder where work orders live")
+            if not parent_dir:
+                return
+
+        wo_folder = os.path.join(parent_dir, wo_no)
+        if os.path.exists(wo_folder):
+            messagebox.showerror("New Work Order",
+                                 f"A folder already exists at:\n{wo_folder}", parent=self)
+            return
+
+        import line_layout as LL
+        try:
+            os.makedirs(wo_folder)
+            os.makedirs(LL.wo_finalization_dir(wo_folder))
+        except OSError as e:
+            messagebox.showerror("New Work Order",
+                                 f"Could not create the folder:\n{e}", parent=self)
+            return
+
+        self.flush()
+        wo_id = self.db.get_or_create_wo(wo_no, wo_folder)
+        self.refresh()
+        self.focus_wo(wo_id)
+        self.say(f"Work order {wo_no} created.")
+
+    def _create_line(self, wo_id: int):
+        wo = self.db.get_wo(wo_id)
+        if not wo:
+            return
+        line_no = simpledialog.askstring(
+            "Add New Line", f"Line number for work order {wo['wo_no']}:", parent=self)
+        if not line_no:
+            return
+        line_no = line_no.strip()
+        if not line_no:
+            return
+        if any(ln["line_no"] == line_no
+              for ln in self.db.lines_for_wo(wo_id, include_archived=True)):
+            messagebox.showerror(
+                "Add New Line",
+                f"Line {line_no} already exists in work order {wo['wo_no']}.",
+                parent=self)
+            return
+
+        wo_folder = wo["folder"] or ""
+        if not wo_folder or not os.path.isdir(wo_folder):
+            messagebox.showerror(
+                "Add New Line",
+                f"Work order {wo['wo_no']}'s folder isn't set or doesn't exist:\n"
+                f"{wo_folder or '(none)'}",
+                parent=self)
+            return
+
+        import line_new
+        try:
+            line_folder = line_new.create_line(wo_folder, line_no)
+        except FileExistsError as e:
+            messagebox.showerror("Add New Line", str(e), parent=self)
+            return
+        except OSError as e:
+            messagebox.showerror("Add New Line",
+                                 f"Could not create the line folder:\n{e}", parent=self)
+            return
+
+        self.flush()
+        line_id = self.db.get_or_create_line(wo_id, line_no, line_folder)
+        self.refresh()
+        self.focus_line(line_id)
+        self.say(f"Line {line_no} created.")
+
+    def _create_lift_case(self, line_id: int):
+        """
+        Run the Creator's full lift-case workflow in-process for this line
+        (Milestone 4) - no second window, no subprocess. The Creator's own
+        dialogs (folder confirm, node entry, parameters, the iecho-export
+        wait screen, and any element-override prompt) open as modal
+        children of THIS window (tk.Toplevel(self), since DocumenterApp is
+        itself a tk.Tk and so a valid `parent` - see ui_dialogs.py's
+        Milestone-3 refactor and lift_case_builder.run()'s `parent` param).
+
+        lift_case_builder.run() never raises/exits on cancel or error - it
+        already showed its own message in either case, so there's nothing
+        further to report here on a False/cancelled result.
+        """
+        ln = self.db.get_line(line_id)
+        if not ln:
+            return
+        wo = self.db.get_wo(ln["wo_id"])
+        folder = ln["folder"] or os.path.join(wo["folder"] or "", ln["line_no"])
+        self.flush()
+
+        import line_layout as LL
+        cii_folder = LL.cii_dir(folder) if folder else ""
+        initial = Path(cii_folder) if cii_folder and os.path.isdir(cii_folder) else None
+
+        import lift_case_builder
+        ok = lift_case_builder.run(initial_folder=initial, parent=self)
+        if not ok:
+            return
+
+        # Pick up the freshly generated case (sidecar) without reopening -
+        # same ingest the overall Refresh button's _rescan_from_disk() uses.
+        res = self.db.ingest_sidecars(ln["wo_id"], folder)
+        self.reload_line(line_id)
+        if self._panel_key == ("line", line_id) and isinstance(self._panel, LinePanel):
+            self._panel.show_overview()
+
+        added, updated = res["added"], res["updated"]
+        if added or updated:
+            self.say(f"Lift case created — {added} added, {updated} updated.")
+        else:
+            self.say("Lift case workflow finished.")
+
     def _archive_line(self, line_id: int):
         ln = self.db.get_line(line_id)
         if not ln:
@@ -506,6 +735,24 @@ class DocumenterApp(tk.Tk):
         self.db.archive_line(line_id)
         self.refresh()
         self.say(f"Line {ln['line_no']} archived.")
+
+    def _archive_case(self, case_id: int):
+        case = self.db.get_case(case_id)
+        if not case:
+            return
+        if not messagebox.askyesno(
+                "Archive case",
+                f"Archive lift case {case['case_name']}?\n\n"
+                "It will be hidden from its line and excluded from exports. "
+                "You can restore it from View archive.",
+                parent=self):
+            return
+        self.flush()
+        self.db.archive_case(case_id)
+        self.reload_line(case["line_id"])
+        if isinstance(self._panel, LinePanel) and self._panel.case_id == case_id:
+            self._panel.show_overview()
+        self.say(f"Case {case['case_name']} archived.")
 
     def _open_archive(self):
         _ArchiveWindow(self, self.db)
@@ -557,7 +804,7 @@ class _ArchiveWindow(tk.Toplevel):
         self.app = app
         self.db = db
         self.title("Archive")
-        self.geometry("640x560")
+        self.geometry("640x760")
         self.transient(app)
         self._build()
         self._reload()
@@ -585,6 +832,20 @@ class _ArchiveWindow(tk.Toplevel):
         ttk.Button(self, text="Restore line",
                    command=self._restore_line).pack(anchor="w", padx=PAD, pady=(2, PAD))
 
+        cf = ttk.LabelFrame(self, text="Archived lift cases", padding=PAD)
+        cf.pack(fill="both", expand=True, padx=PAD, pady=(0, 0))
+        self.case_tv = ttk.Treeview(cf, columns=("line", "wo"), show="tree headings",
+                                    selectmode="browse", height=8)
+        self.case_tv.heading("#0", text="Case"); self.case_tv.heading("line", text="Line")
+        self.case_tv.heading("wo", text="Work order")
+        self.case_tv.column("#0", width=240); self.case_tv.column("line", width=160)
+        self.case_tv.column("wo", width=140)
+        self.case_tv.pack(side="left", fill="both", expand=True)
+        csb = ttk.Scrollbar(cf, orient="vertical", command=self.case_tv.yview)
+        self.case_tv.configure(yscrollcommand=csb.set); csb.pack(side="right", fill="y")
+        ttk.Button(self, text="Restore case",
+                   command=self._restore_case).pack(anchor="w", padx=PAD, pady=(2, PAD))
+
         ttk.Button(self, text="Close", command=self.destroy).pack(side="right",
                                                                    padx=PAD, pady=(0, PAD))
 
@@ -596,6 +857,10 @@ class _ArchiveWindow(tk.Toplevel):
         for ln in self.db.archived_lines():
             self.ln_tv.insert("", "end", iid=str(ln["id"]), text=ln["line_no"],
                               values=(ln["wo_no"],))
+        self.case_tv.delete(*self.case_tv.get_children())
+        for c in self.db.archived_cases():
+            self.case_tv.insert("", "end", iid=str(c["id"]), text=c["case_name"],
+                                values=(c["line_no"], c["wo_no"]))
 
     def _restore_wo(self):
         sel = self.wo_tv.selection()
@@ -617,6 +882,19 @@ class _ArchiveWindow(tk.Toplevel):
         self.app.refresh()
         self.app.say("Line restored.")
 
+    def _restore_case(self):
+        sel = self.case_tv.selection()
+        if not sel:
+            messagebox.showinfo("Restore", "Select an archived case.", parent=self)
+            return
+        case_id = int(sel[0])
+        case = self.db.get_case(case_id)
+        self.db.restore_case(case_id)
+        self._reload()
+        if case:
+            self.app.reload_line(case["line_id"])
+        self.app.say("Case restored.")
+
 
 # ======================================================================
 # Database admin  (ADVANCED - permanent delete, typed confirm + backup)
@@ -634,8 +912,8 @@ class _DbAdminWindow(tk.Toplevel):
         self.grab_set()
 
     def _build(self):
-        warn = ("Permanent delete. Removes the work order or line and ALL of its "
-                "data (isos, lift cases, supports, lift points) plus the "
+        warn = ("Permanent delete. Removes the work order, line, or lift case and "
+                "ALL of its data (isos, lift cases, supports, lift points) plus the "
                 "associated files under the database folder. This cannot be "
                 "undone. Archived items are shown too.")
         ttk.Label(self, text=warn, wraplength=580, foreground="#a00",
@@ -663,8 +941,12 @@ class _DbAdminWindow(tk.Toplevel):
                                  text=f"{wo['wo_no']}{tag}", open=False)
             for ln in self.db.lines_for_wo(wo["id"], include_archived=True):
                 ltag = "  [archived]" if ln["archived"] else ""
-                self.tv.insert(wid, "end", iid=f"line:{ln['id']}",
-                               text=f"{ln['line_no']}{ltag}")
+                lid = self.tv.insert(wid, "end", iid=f"line:{ln['id']}",
+                                     text=f"{ln['line_no']}{ltag}")
+                for c in self.db.cases_for_line(ln["id"], include_archived=True):
+                    ctag = "  [archived]" if c["archived"] else ""
+                    self.tv.insert(lid, "end", iid=f"case:{c['id']}",
+                                   text=f"{c['case_name']}{ctag}")
 
     def _delete(self):
         sel = self.tv.selection()
@@ -680,11 +962,16 @@ class _DbAdminWindow(tk.Toplevel):
             if not wo:
                 return
             name, label = wo["wo_no"], f"work order {wo['wo_no']}"
-        else:
+        elif kind == "line":
             ln = self.db.get_line(sid)
             if not ln:
                 return
             name, label = ln["line_no"], f"line {ln['line_no']}"
+        else:
+            case = self.db.get_case(sid)
+            if not case:
+                return
+            name, label = case["case_name"], f"lift case {case['case_name']}"
 
         typed = simpledialog.askstring(
             "Confirm permanent delete",
@@ -711,8 +998,10 @@ class _DbAdminWindow(tk.Toplevel):
 
         if kind == "wo":
             summ = self.db.purge_wo(sid, delete_files=True)
-        else:
+        elif kind == "line":
             summ = self.db.purge_line(sid, delete_files=True)
+        else:
+            summ = self.db.purge_case(sid, delete_files=True)
 
         self._reload()
         self.app.refresh()

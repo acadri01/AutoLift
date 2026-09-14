@@ -12,23 +12,30 @@ a = Analysis(
     ['src/launcher.py'],
     pathex=['src', 'src/creator', 'src/documenter', 'src/shared'],
     binaries=[],
-    datas=[],
+    datas=[
+        # Add New Line's bundled starter content (line_new.py's
+        # _template_root() expects it at <bundle>/templates/Add_New_Line) -
+        # see src/documenter/templates/Add_New_Line/README.md.
+        ('src/documenter/templates/Add_New_Line', 'templates/Add_New_Line'),
+    ],
     hiddenimports=[
         # launcher-side
         'install_context_menu',
         # creator (LiftNeutralFileModifier) modules imported by name
         'create_lift_case', 'config', 'copy_main_cii', 'iecho',
+        'tool_discovery',
         'lift_case_builder', 'neutral_patcher', 'neutral_reader',
-        'neutral_writer', 'ui_dialogs',
+        'neutral_writer', 'ui_dialogs', 'prepip_automation',
         # documenter (MarkUpGen) modules imported by name
         'lift_documenter', 'app_ui', 'case_meta_ui', 'doc_config',
+        'line_new',
         'line_ui', 'wo_ui', 'sheet_canvas', 'export', 'work_order',
         'iso_overlay', 'pdf_render', 'layout_builder', 'catalog',
         'cloud_geom', 'lift_calc', 'lift_db', 'sheet_model',
         'clipboard_io', 'fonts', 'markup_weights_ui', 'preview',
         'preview_pane',
         # shared
-        'lift_meta', 'line_layout',
+        'lift_meta', 'line_layout', 'app_paths',
         # third-party bits PyInstaller under-detects (carried over from the
         # two original .spec files)
         'PIL._tkinter_finder', 'PIL.ImageGrab',

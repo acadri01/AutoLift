@@ -115,10 +115,13 @@ checking the emitted JSON matches the case you built.
 ## One thing to confirm on first real run
 --------------------------------------------------------------------------
 
-For a short-element case that triggers _handle_short (the override path),
-SplitSpec is still returned with a valid new_node, lifted_node, and a
-possibly-reduced spacing_mm (e.g. min(spacing_mm, L*0.5)). In that case
-distance_mm in the sidecar reflects the ACTUAL spacing used, not the
-nominal — which is what you want on the mark-up. Just be aware the
-documented distance may differ from the 750/900 you typed if an override
-shortened it.
+For a case that exhausts the geometric walk and falls back to the override
+path (`_resolve_via_override`, as of the 2026-09-14 "distance from
+support" redesign — this superseded the earlier `_handle_short`),
+SplitSpec is still returned with a valid new_node, lifted_node, and either
+the requested spacing_mm (an on_override/dialog-supplied element) or a
+possibly-reduced one (the headless no-callback fallback, e.g.
+min(spacing_mm, L*0.5)). In that case distance_mm in the sidecar reflects
+the ACTUAL spacing used, not the nominal — which is what you want on the
+mark-up. Just be aware the documented distance may differ from the 750/900
+you typed if an override shortened it.

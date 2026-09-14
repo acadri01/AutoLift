@@ -81,8 +81,6 @@ class LinePanel(ttk.Frame):
         ttk.Button(top, text="Upload iso...", command=self.upload_iso).pack(side="right")
         ttk.Button(top, text="Add existing case...",
                    command=self.add_existing_case).pack(side="right", padx=PAD)
-        ttk.Button(top, text="Sync cases",
-                   command=self.sync_cases).pack(side="right", padx=(0, PAD))
 
         self._cv = tk.Canvas(self, highlightthickness=0)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._cv.yview)
@@ -261,8 +259,6 @@ class LinePanel(ttk.Frame):
         right = ttk.LabelFrame(cont, text="Line preview  -  isos + all cases, export order",
                                padding=PAD)
         right.grid(row=0, column=1, sticky="nsew")
-        bar = ttk.Frame(right); bar.pack(fill="x")
-        ttk.Button(bar, text="Refresh", command=self.show_overview).pack(side="right")
         body = ttk.Frame(right); body.pack(fill="both", expand=True)
         if isos or cases:
             self._embed_pages(body, lambda: preview.line_pages(self.db, lid))
@@ -282,7 +278,8 @@ class LinePanel(ttk.Frame):
 
     def _build_sequence(self, parent, isos):
         """Reorderable iso order (the export sequence); persists to seq, which
-        the tree, preview and work-order export all follow."""
+        the tree, preview and work-order export all follow. Drag rows to
+        reorder (preferred), or use Move up/down."""
         parent.columnconfigure(0, weight=1)
         if not isos:
             ttk.Label(parent, text="(no isometrics yet)",
@@ -297,15 +294,66 @@ class LinePanel(ttk.Frame):
             self._iso_order_ids.append(iso["id"])
         self.iso_order_lb.grid(row=0, column=0, sticky="ew")
         self.iso_order_lb.selection_set(0)
+        self._bind_drag_reorder(
+            self.iso_order_lb, self._iso_order_ids,
+            lambda ids: self.db.reorder_isos(self.line_id, ids))
         bar = ttk.Frame(parent); bar.grid(row=0, column=1, sticky="n", padx=(PAD, 0))
         ttk.Button(bar, text="Move up", width=10,
                    command=lambda: self._move_iso(-1)).pack()
         ttk.Button(bar, text="Move down", width=10,
                    command=lambda: self._move_iso(1)).pack(pady=(4, 0))
-        ttk.Label(parent, text="Order sets the sequence in the tree, preview and "
+        ttk.Label(parent, text="Drag a row to reorder, or use Move up/down. Order "
+                               "sets the sequence in the tree, preview and "
                                "work-order export.", foreground="#777",
                   font=("Segoe UI", 8)).grid(row=1, column=0, columnspan=2,
                                              sticky="w", pady=(4, 0))
+
+    def _bind_drag_reorder(self, listbox, order_ids, persist):
+        """
+        Wires click-drag-release reordering onto a Listbox whose row i
+        corresponds to order_ids[i]. Reorders the Listbox and order_ids
+        live as the mouse moves - cheap, no DB write, no panel rebuild -
+        so dragging a case/iso across a long list is one continuous motion
+        instead of many "click, wait for the whole panel to rebuild, click
+        again" steps via Move up/down. Only the FINAL position is persisted
+        (persist(order_ids), e.g. db.reorder_cases/reorder_isos) and the
+        tree/preview refreshed, on mouse release.
+        """
+        state = {"start": None}
+
+        def on_press(event):
+            idx = listbox.nearest(event.y)
+            if 0 <= idx < listbox.size():
+                state["start"] = idx
+                listbox.selection_clear(0, "end")
+                listbox.selection_set(idx)
+
+        def on_motion(event):
+            if state["start"] is None:
+                return
+            idx = listbox.nearest(event.y)
+            if idx < 0 or idx == state["start"]:
+                return
+            text = listbox.get(state["start"])
+            listbox.delete(state["start"])
+            listbox.insert(idx, text)
+            order_ids.insert(idx, order_ids.pop(state["start"]))
+            listbox.selection_clear(0, "end")
+            listbox.selection_set(idx)
+            state["start"] = idx
+
+        def on_release(event):
+            if state["start"] is None:
+                return
+            state["start"] = None
+            if persist(list(order_ids)):
+                self.app.reload_line(self.line_id)   # tree order follows
+                self.show_overview()                 # re-render list + preview
+                self._say("Order updated.")
+
+        listbox.bind("<Button-1>", on_press)
+        listbox.bind("<B1-Motion>", on_motion)
+        listbox.bind("<ButtonRelease-1>", on_release)
 
     def _move_iso(self, delta):
         sel = self.iso_order_lb.curselection()
@@ -325,7 +373,8 @@ class LinePanel(ttk.Frame):
 
     def _build_case_sequence(self, parent, cases):
         """Reorderable lift-case order (part of the export sequence); persists to
-        lift_cases.seq, which the tree, preview and work-order export all follow."""
+        lift_cases.seq, which the tree, preview and work-order export all
+        follow. Drag rows to reorder (preferred), or use Move up/down."""
         parent.columnconfigure(0, weight=1)
         if not cases:
             ttk.Label(parent, text="(no lift cases yet)",
@@ -341,12 +390,16 @@ class LinePanel(ttk.Frame):
             self._case_order_ids.append(c["id"])
         self.case_order_lb.grid(row=0, column=0, sticky="ew")
         self.case_order_lb.selection_set(0)
+        self._bind_drag_reorder(
+            self.case_order_lb, self._case_order_ids,
+            lambda ids: self.db.reorder_cases(self.line_id, ids))
         bar = ttk.Frame(parent); bar.grid(row=0, column=1, sticky="n", padx=(PAD, 0))
         ttk.Button(bar, text="Move up", width=10,
                    command=lambda: self._move_case(-1)).pack()
         ttk.Button(bar, text="Move down", width=10,
                    command=lambda: self._move_case(1)).pack(pady=(4, 0))
-        ttk.Label(parent, text="Order sets the case sequence in the tree, preview "
+        ttk.Label(parent, text="Drag a row to reorder, or use Move up/down. Order "
+                               "sets the case sequence in the tree, preview "
                                "and work-order export.", foreground="#777",
                   font=("Segoe UI", 8)).grid(row=1, column=0, columnspan=2,
                                              sticky="w", pady=(4, 0))
@@ -504,26 +557,6 @@ class LinePanel(ttk.Frame):
     # ------------------------------------------------------------------
     # Legacy case adoption + case data editing (sidecar-backed)
     # ------------------------------------------------------------------
-    def sync_cases(self):
-        """Ingest any newly generated cases for this line from their
-        *_liftmeta.json sidecars, without reopening the app. This is the same
-        ingest that runs when the app is opened from the line folder."""
-        res = self.db.ingest_sidecars(self.wo_id, self.folder)
-        added, updated, failed = res["added"], res["updated"], res["failed"]
-        if added or updated or failed:
-            self.app.reload_line(self.line_id)     # refresh the tree leaves
-            self.show_overview()                   # refresh the in-panel preview
-            parts = []
-            if added:
-                parts.append(f"{added} added")
-            if updated:
-                parts.append(f"{updated} updated")
-            if failed:
-                parts.append(f"{failed} failed")
-            self._say("Cases synced: " + ", ".join(parts) + ".")
-        else:
-            self._say("No case sidecars found for this line.")
-
     def add_existing_case(self):
         """Detect unregistered .C2 files, complete their data, write sidecar."""
         known = [c["case_name"] for c in self.db.cases_for_line(self.line_id)]
@@ -569,6 +602,20 @@ class LinePanel(ttk.Frame):
         self.app.focus_case(cid)              # tree + detail view in sync
         self._say("Case data updated (sidecar rewritten).")
 
+    def archive_case(self):
+        case = self.db.get_case(self.case_id)
+        if not messagebox.askyesno(
+                "Archive case",
+                f"Archive lift case {case['case_name']}?\n\n"
+                "It will be hidden from this line and excluded from exports. "
+                "You can restore it later from View archive.",
+                parent=self._top()):
+            return
+        self.db.archive_case(self.case_id)
+        self.app.reload_line(self.line_id)
+        self.show_overview()
+        self._say(f"Case {case['case_name']} archived.")
+
     def _render_case(self):
         self._clear()
         case = self.db.get_case(self.case_id)
@@ -576,8 +623,10 @@ class LinePanel(ttk.Frame):
         lifts = self.db.lifts_for(self.case_id)
         hdr = ttk.Frame(self.sheet); hdr.pack(fill="x", pady=(0, PAD), padx=(0, PAD))
         ttk.Label(hdr, text=case["case_name"], font=("Segoe UI", 12, "bold")).pack(side="left")
+        ttk.Button(hdr, text="Archive case",
+                   command=self.archive_case).pack(side="right")
         ttk.Button(hdr, text="Edit case data...",
-                   command=self.edit_case_data).pack(side="right")
+                   command=self.edit_case_data).pack(side="right", padx=(0, PAD))
         self._sec_image(case); self._sec_supports(sups); self._sec_lifts(case, lifts)
         self._sec_note(case, sups, lifts); self._sec_verdict(case); self._sec_sheet(case)
 

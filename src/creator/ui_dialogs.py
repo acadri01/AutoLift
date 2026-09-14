@@ -23,21 +23,34 @@ CiiPollingDialog        Shown while waiting for the user to export a CII file
                         Terminates the iecho process on both success and abort.
                         Returns True (file ready) or False (user aborted).
 
+MainExpandedDialog      Shown when a *_MAIN._A file exists with no *_MAIN.C2 -
+                        CAESAR II (prepip.exe) has the model open. By the time
+                        it opens, lift_case_builder.py has already made one
+                        silent attempt to collapse the file automatically
+                        (prepip_automation.py); this dialog confirms that and
+                        gives manual instructions as the fallback, polling for
+                        *_MAIN.C2 to reappear. No timeout.
+                        Returns True (ready) or False (user aborted).
+
 ElementOverrideDialog   Shown only when a proposed element break has a geometry
-                        problem (element shorter than spacing). Allows the user
-                        to confirm or override from/to nodes for each side.
+                        problem (no element reaches the requested horizontal-
+                        plane distance). Only asks for the side(s) actually
+                        exhausted - both fields appear together only when a
+                        single lifted node's upstream AND downstream splits
+                        are both exhausted at once.
                         Returns ElementOverride or None (cancelled).
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -68,16 +81,56 @@ class LiftParams:
 
 @dataclass
 class ElementOverride:
-    """Per-lifted-node override for which element to break on each side."""
-    upstream_from: int
-    upstream_to: int
-    downstream_from: int
-    downstream_to: int
+    """
+    Per-lifted-node override for which element to break on each side.
+
+    Only the side(s) actually prompted for (see ElementOverrideDialog's
+    `sides`) are populated - per direct instruction (2026-09-14), the user
+    is only asked for the side that needs manual input, so the other
+    side's fields stay None rather than being invented."""
+    upstream_from: Optional[int] = None
+    upstream_to: Optional[int] = None
+    downstream_from: Optional[int] = None
+    downstream_to: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+def _new_dialog_root(parent: Optional[tk.Misc]) -> tk.Tk | tk.Toplevel:
+    """
+    tk.Tk() when standalone (parent=None - every current caller, unchanged
+    from before this Milestone-3 refactor), tk.Toplevel(parent) when
+    embedded in a host app's own Tk root (Milestone 4's in-Documenter
+    "Create lift case..." entry point - no caller passes parent yet)."""
+    if parent is None:
+        return tk.Tk()
+    root = tk.Toplevel(parent)
+    root.transient(parent)
+    return root
+
+
+def _run_modal(root: tk.Tk | tk.Toplevel, parent: Optional[tk.Misc]) -> None:
+    """
+    Block until `root` is closed (every _confirm/_cancel/_close path calls
+    root.destroy()).
+
+    Standalone (parent=None): root.mainloop() - byte-for-byte the same call
+    every dialog made before this refactor, so today's standalone tool is
+    unaffected regardless of how any future embedded caller behaves.
+
+    Embedded (parent given): grab_set() makes the dialog modal relative to
+    the host window, and wait_window() blocks the CALLER without starting a
+    second mainloop - the host app's own mainloop (already running) keeps
+    processing events for this window in the meantime, which is the
+    standard Tkinter pattern for a modal child dialog."""
+    if parent is None:
+        root.mainloop()
+    else:
+        root.grab_set()
+        root.wait_window()
+
 
 def _center(root: tk.Tk | tk.Toplevel) -> None:
     root.update_idletasks()
@@ -132,10 +185,11 @@ class FolderSelectDialog:
     result : Path or None (cancelled)
     """
 
-    def __init__(self, initial_path: Optional[Path] = None):
+    def __init__(self, initial_path: Optional[Path] = None,
+                 parent: Optional[tk.Misc] = None):
         self.result: Optional[Path] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Select Folder")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -145,7 +199,7 @@ class FolderSelectDialog:
         self._build_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_ui(self):
         pad = dict(padx=14, pady=6)
@@ -235,11 +289,11 @@ class NodePromptDialog:
              None       — user cancelled
     """
 
-    def __init__(self, prefix: str):
+    def __init__(self, prefix: str, parent: Optional[tk.Misc] = None):
         self.prefix = prefix
         self.result: Optional[List[str]] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Node Selection")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -248,7 +302,7 @@ class NodePromptDialog:
         self._build_static_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_static_ui(self):
         pad = dict(padx=12, pady=5)
@@ -402,7 +456,8 @@ class LiftParamsDialog:
     DEFAULT_SPACING_MM = 750.0   # overridden from config at runtime
     DEFAULT_DISP_MM    = 10.0    # overridden from config at runtime
 
-    def __init__(self, prefix: str, nodes: List[str]):
+    def __init__(self, prefix: str, nodes: List[str],
+                 parent: Optional[tk.Misc] = None):
         from config import default_spacing_mm, default_displacement_mm
         self.DEFAULT_SPACING_MM = default_spacing_mm()
         self.DEFAULT_DISP_MM    = default_displacement_mm()
@@ -411,7 +466,7 @@ class LiftParamsDialog:
         self.nodes  = nodes
         self.result: Optional[LiftParams] = None
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Lift Case — Parameters")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -422,7 +477,7 @@ class LiftParamsDialog:
         self._build_ui()
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _build_ui(self):
         pad = dict(padx=14, pady=5)
@@ -573,6 +628,7 @@ class CiiPollingDialog:
         reference_mtime: float,
         c2_name: str,
         proc: Optional[subprocess.Popen] = None,
+        parent: Optional[tk.Misc] = None,
     ):
         from config import poll_timeout_s
         self.MAX_WAIT_S      = poll_timeout_s()
@@ -583,7 +639,7 @@ class CiiPollingDialog:
         self.result: bool    = False
         self._start          = time.time()
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title("Waiting for CII Export")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._abort)
@@ -592,7 +648,7 @@ class CiiPollingDialog:
         _center(self.root)
         self._raise()
         self._poll()
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
     def _raise(self):
         """Bring the dialog to the front above iecho and claim keyboard focus."""
@@ -675,6 +731,143 @@ class CiiPollingDialog:
 
 
 # ---------------------------------------------------------------------------
+# MainExpandedDialog
+# ---------------------------------------------------------------------------
+
+class MainExpandedDialog:
+    """
+    Shown when a folder has a *_MAIN._A file but no *_MAIN.C2 - CAESAR II
+    (prepip.exe) currently has the model open, "expanding" it, and the
+    ._A alone doesn't carry all the information a lift case needs (per
+    direct instruction, 2026-09-14). Polls for a *_MAIN.C2 file to
+    reappear (the file being collapsed back), closing automatically once
+    one does. No timeout - unlike CiiPollingDialog this isn't bound to a
+    subprocess AutoLift itself launched, and the user may legitimately be
+    away from CAESAR II for a while before coming back to collapse it.
+
+    This dialog OWNS the automated-collapse attempt (Phase 2, 2026-09-14 -
+    see prepip_automation.py): once it's actually visible on screen, it
+    schedules bring_prepip_forward() after a short delay, then
+    send_ctrl_o() after another short delay once that succeeds - never
+    all at once, and never before the dialog itself has had time to
+    appear. A same-day follow-up report ("it seems like it happens before
+    the dialogue explaining it opens... have the dialogue open, then
+    bring forward, then do the open file command. Allow some time between
+    each") is why - the first two passes ran the whole sequence
+    synchronously in lift_case_builder.py, before this dialog ever
+    opened, racing CAESAR's own window activity against AutoLift
+    immediately opening a new window that steals focus straight back.
+    The automated attempt can still fail (window not found, the OS
+    refusing the foreground change) or simply not be enough on its own -
+    the manual instructions in the dialog's own text are the fallback
+    either way.
+
+    result : True  — a *_MAIN.C2 file appeared, safe to proceed
+             False — aborted
+    """
+
+    POLL_INTERVAL_MS = 1000
+    _MAIN_C2_RE = re.compile(r'.+_MAIN\.C2$', re.IGNORECASE)
+
+    # Per direct instruction (2026-09-14 follow-up, after the automation
+    # first raced this dialog's own opening): show the dialog fully
+    # first, THEN bring prepip.exe forward, THEN (another delay later)
+    # send Ctrl+O - never all three at once.
+    _AUTOMATION_START_DELAY_MS = 600
+    _AUTOMATION_KEYSTROKE_DELAY_MS = 500
+
+    def __init__(self, folder: Path, parent: Optional[tk.Misc] = None):
+        self.folder = folder
+        self.result: bool = False
+
+        self.root = _new_dialog_root(parent)
+        self.root.title("CAESAR File Open")
+        self.root.resizable(False, False)
+        self.root.protocol("WM_DELETE_WINDOW", self._abort)
+
+        self._build_ui()
+        _center(self.root)
+        _focus_window(self.root)
+        self._poll()
+        self.root.after(self._AUTOMATION_START_DELAY_MS, self._start_automation)
+        _run_modal(self.root, parent)
+
+    def _start_automation(self):
+        """
+        Runs once this dialog has had time to actually appear on screen
+        (per direct instruction, 2026-09-14 follow-up - the first version
+        attempted this before the dialog ever opened, racing CAESAR's own
+        window activity against AutoLift immediately stealing focus back
+        by opening a new window). Best-effort; any failure here just
+        means the manual instructions already on screen are the fallback.
+        """
+        try:
+            import prepip_automation
+            hwnd = prepip_automation.bring_prepip_forward()
+        except Exception:
+            hwnd = None
+        if hwnd is not None:
+            self.root.after(self._AUTOMATION_KEYSTROKE_DELAY_MS, self._send_automation_keystroke)
+
+    def _send_automation_keystroke(self):
+        try:
+            import prepip_automation
+            prepip_automation.send_ctrl_o()
+        except Exception:
+            pass
+
+    def _build_ui(self):
+        pad = dict(padx=16, pady=8)
+
+        _label(self.root,
+               "The model file is currently open in CAESAR II",
+               bold=True, wraplength=420).grid(row=0, column=0, sticky="w", **pad)
+
+        _label(self.root,
+               f"A *_MAIN._A file was found but no *_MAIN.C2 in:\n{self.folder}\n\n"
+               f"This means CAESAR II (prepip.exe) currently has the model open, "
+               f"which doesn't carry all the information a lift case needs.\n\n"
+               f"In a moment, AutoLift will try to bring CAESAR II to the front "
+               f"and trigger File → Open automatically (that's why its window "
+               f"may jump forward shortly). If that works, this continues on "
+               f"its own.\n\n"
+               f"If nothing happens, or you'd rather do it yourself, please "
+               f"either:\n"
+               f"  •  Close CAESAR II entirely, or\n"
+               f"  •  In prepip.exe, use File → Open (Ctrl+O) to collapse the "
+               f"file back\n\n"
+               f"This will continue automatically once a *_MAIN.C2 file reappears.",
+               wraplength=420, justify="left").grid(
+            row=1, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        self._status_var = tk.StringVar(value="Waiting...")
+        tk.Label(self.root, textvariable=self._status_var,
+                font=("Segoe UI", 9), fg="#0055aa",
+                wraplength=420, anchor="w").grid(
+            row=2, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        btn_frame = tk.Frame(self.root)
+        btn_frame.grid(row=3, column=0, pady=(4, 12))
+        _btn(btn_frame, "Abort", self._abort, width=12).pack()
+
+    def _poll(self):
+        try:
+            for f in self.folder.iterdir():
+                if self._MAIN_C2_RE.match(f.name):
+                    self._status_var.set(f"✓  Found: {f.name}")
+                    self.result = True
+                    self.root.after(600, self.root.destroy)
+                    return
+        except OSError:
+            pass
+        self.root.after(self.POLL_INTERVAL_MS, self._poll)
+
+    def _abort(self):
+        self.result = False
+        self.root.destroy()
+
+
+# ---------------------------------------------------------------------------
 # ElementOverrideDialog
 # ---------------------------------------------------------------------------
 
@@ -682,75 +875,96 @@ class ElementOverrideDialog:
     """
     Shown when a proposed element break has a geometry problem.
 
+    Only prompts for the side(s) actually named in `sides` - per direct
+    instruction (2026-09-14), the user shouldn't be asked to confirm a side
+    that already resolved fine on its own. Both rows appear together only
+    when a single lifted node's upstream AND downstream splits are both
+    exhausted at once.
+
     result : ElementOverride or None (cancelled)
     """
 
     def __init__(
         self,
         lifted_node: int,
-        upstream_from: int,
-        upstream_to: int,
-        downstream_from: int,
-        downstream_to: int,
         problem: str,
+        sides: Tuple[str, ...] = ("upstream", "downstream"),
+        upstream_from: Optional[int] = None,
+        upstream_to: Optional[int] = None,
+        downstream_from: Optional[int] = None,
+        downstream_to: Optional[int] = None,
+        parent: Optional[tk.Misc] = None,
     ):
         self.result: Optional[ElementOverride] = None
+        self._sides = sides
 
-        self.root = tk.Tk()
+        self.root = _new_dialog_root(parent)
         self.root.title(f"Element Override — Node {lifted_node}")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self._build_ui(
             lifted_node, upstream_from, upstream_to,
-            downstream_from, downstream_to, problem,
+            downstream_from, downstream_to, problem, sides,
         )
         _center(self.root)
         _focus_window(self.root)
-        self.root.mainloop()
+        _run_modal(self.root, parent)
 
-    def _build_ui(self, lifted_node, up_from, up_to, dn_from, dn_to, problem):
+    def _build_ui(self, lifted_node, up_from, up_to, dn_from, dn_to, problem, sides):
         pad = dict(padx=12, pady=5)
+        row = 0
 
         _label(self.root, f"Lifted node: {lifted_node}",
-               bold=True).grid(row=0, column=0, columnspan=4,
+               bold=True).grid(row=row, column=0, columnspan=4,
                                 sticky="w", **pad)
+        row += 1
 
         _label(self.root, f"⚠  {problem}",
                fg="#cc4400", wraplength=420).grid(
-            row=1, column=0, columnspan=4, sticky="w",
+            row=row, column=0, columnspan=4, sticky="w",
             padx=12, pady=(0, 8))
+        row += 1
 
         for col, txt in enumerate(["Side", "From node", "To node", ""]):
             _label(self.root, txt, bold=True).grid(
-                row=2, column=col, padx=8, pady=2)
+                row=row, column=col, padx=8, pady=2)
+        row += 1
 
-        _label(self.root, "Upstream").grid(
-            row=3, column=0, padx=8, pady=4, sticky="e")
-        self._up_from = tk.StringVar(value=str(up_from))
-        self._up_to   = tk.StringVar(value=str(up_to))
-        _entry(self.root, self._up_from, width=8).grid(
-            row=3, column=1, padx=4, pady=4)
-        _entry(self.root, self._up_to, width=8).grid(
-            row=3, column=2, padx=4, pady=4)
+        self._up_from = self._up_to = None
+        self._dn_from = self._dn_to = None
 
-        _label(self.root, "Downstream").grid(
-            row=4, column=0, padx=8, pady=4, sticky="e")
-        self._dn_from = tk.StringVar(value=str(dn_from))
-        self._dn_to   = tk.StringVar(value=str(dn_to))
-        _entry(self.root, self._dn_from, width=8).grid(
-            row=4, column=1, padx=4, pady=4)
-        _entry(self.root, self._dn_to, width=8).grid(
-            row=4, column=2, padx=4, pady=4)
+        if "upstream" in sides:
+            _label(self.root, "Upstream").grid(
+                row=row, column=0, padx=8, pady=4, sticky="e")
+            self._up_from = tk.StringVar(value=str(up_from if up_from is not None else ""))
+            self._up_to   = tk.StringVar(value=str(up_to if up_to is not None else ""))
+            _entry(self.root, self._up_from, width=8).grid(
+                row=row, column=1, padx=4, pady=4)
+            _entry(self.root, self._up_to, width=8).grid(
+                row=row, column=2, padx=4, pady=4)
+            row += 1
+
+        if "downstream" in sides:
+            _label(self.root, "Downstream").grid(
+                row=row, column=0, padx=8, pady=4, sticky="e")
+            self._dn_from = tk.StringVar(value=str(dn_from if dn_from is not None else ""))
+            self._dn_to   = tk.StringVar(value=str(dn_to if dn_to is not None else ""))
+            _entry(self.root, self._dn_from, width=8).grid(
+                row=row, column=1, padx=4, pady=4)
+            _entry(self.root, self._dn_to, width=8).grid(
+                row=row, column=2, padx=4, pady=4)
+            row += 1
 
         _label(self.root,
-               "Override the From/To nodes if the suggested elements are incorrect.",
+               "Override the From/To nodes if the suggested element is incorrect.",
                fg="#555555", italic=True, wraplength=420).grid(
-            row=5, column=0, columnspan=4, sticky="w",
+            row=row, column=0, columnspan=4, sticky="w",
             padx=12, pady=(4, 8))
+        row += 1
 
         btn_frame = tk.Frame(self.root)
-        btn_frame.grid(row=6, column=0, columnspan=4, pady=(4, 10))
+        btn_frame.grid(row=row, column=0, columnspan=4, pady=(4, 10))
         _btn(btn_frame, "OK", self._confirm, default=True).pack(
             side="left", padx=6)
         _btn(btn_frame, "Cancel", self._cancel).pack(side="left", padx=6)
@@ -759,11 +973,14 @@ class ElementOverrideDialog:
         self.root.bind("<Escape>",  lambda e: self._cancel())
 
     def _confirm(self):
+        uf = ut = df = dt = None
         try:
-            uf = int(self._up_from.get().strip())
-            ut = int(self._up_to.get().strip())
-            df = int(self._dn_from.get().strip())
-            dt = int(self._dn_to.get().strip())
+            if self._up_from is not None:
+                uf = int(self._up_from.get().strip())
+                ut = int(self._up_to.get().strip())
+            if self._dn_from is not None:
+                df = int(self._dn_from.get().strip())
+                dt = int(self._dn_to.get().strip())
         except ValueError:
             messagebox.showerror("Invalid input",
                                  "All node fields must be integers.",
@@ -805,18 +1022,20 @@ def show_message(title: str, message: str,
     return True
 
 
-def prompt_folder(initial_path: Optional[Path] = None) -> Optional[Path]:
-    d = FolderSelectDialog(initial_path)
+def prompt_folder(initial_path: Optional[Path] = None,
+                  parent: Optional[tk.Misc] = None) -> Optional[Path]:
+    d = FolderSelectDialog(initial_path, parent=parent)
     return d.result
 
 
-def prompt_nodes(prefix: str) -> Optional[List[str]]:
-    d = NodePromptDialog(prefix)
+def prompt_nodes(prefix: str, parent: Optional[tk.Misc] = None) -> Optional[List[str]]:
+    d = NodePromptDialog(prefix, parent=parent)
     return d.result
 
 
-def prompt_lift_params(prefix: str, nodes: List[str]) -> Optional[LiftParams]:
-    d = LiftParamsDialog(prefix, nodes)
+def prompt_lift_params(prefix: str, nodes: List[str],
+                       parent: Optional[tk.Misc] = None) -> Optional[LiftParams]:
+    d = LiftParamsDialog(prefix, nodes, parent=parent)
     return d.result
 
 
@@ -825,20 +1044,36 @@ def poll_for_cii(
     reference_mtime: float,
     c2_name: str,
     proc: Optional[subprocess.Popen] = None,
+    parent: Optional[tk.Misc] = None,
 ) -> bool:
     """Show CiiPollingDialog. Returns True when file is ready."""
-    d = CiiPollingDialog(cii_path, reference_mtime, c2_name, proc)
+    d = CiiPollingDialog(cii_path, reference_mtime, c2_name, proc, parent=parent)
+    return d.result
+
+
+def prompt_main_expanded(folder: Path, parent: Optional[tk.Misc] = None) -> bool:
+    """Show MainExpandedDialog. Returns True once a *_MAIN.C2 file appears
+    (the user collapsed CAESAR's expanded file back), False if aborted."""
+    d = MainExpandedDialog(folder, parent=parent)
     return d.result
 
 
 def prompt_element_override(
     lifted_node: int,
-    upstream_from: int, upstream_to: int,
-    downstream_from: int, downstream_to: int,
     problem: str,
+    sides: Tuple[str, ...] = ("upstream", "downstream"),
+    upstream_from: Optional[int] = None,
+    upstream_to: Optional[int] = None,
+    downstream_from: Optional[int] = None,
+    downstream_to: Optional[int] = None,
+    parent: Optional[tk.Misc] = None,
 ) -> Optional[ElementOverride]:
     d = ElementOverrideDialog(
-        lifted_node, upstream_from, upstream_to,
-        downstream_from, downstream_to, problem,
+        lifted_node=lifted_node,
+        problem=problem,
+        sides=sides,
+        upstream_from=upstream_from, upstream_to=upstream_to,
+        downstream_from=downstream_from, downstream_to=downstream_to,
+        parent=parent,
     )
     return d.result
