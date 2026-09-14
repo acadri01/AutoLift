@@ -193,33 +193,62 @@ where Claude parks non-blocking questions + logs assumptions
   template, a "Create new case" button instead of right-click, and
   detection of CAESAR's `.C2`/`._A` file-expansion issue) and explicitly
   asked for a to-do list to confirm before proceeding - posted on the PR,
-  no code changed yet. Two concrete blockers within that request:
-  - **"FINALIZATION" folder scope**: is this a NEW work-order-level folder
-    (one per WO, separate from anything line-specific), or does the user
-    actually mean the existing PER-LINE `<WorkOrder>/<Line>/02_FINALISATION`
-    (`line_layout.py`'s `FINAL_DIR`, British spelling)? The user's wording
-    ("a folder for the work order... with a FINALIZATION folder within")
-    reads as the former, but this decides a real folder-layout detail on
-    real job folders - guessing wrong here isn't cosmetic. Concrete next
-    step once answered: if new/WO-level, add a `FINALIZATION_DIR` constant
-    + helper to `line_layout.py` (mirroring `refs_dir`/`final_dir`/
-    `cii_dir`) and create it alongside the WO folder in the new
-    "create work order" action; if it means the existing per-line one,
-    no new constant needed - the "create line" template (once its zip is
-    available, see below) already covers it.
-  - **`Add_New_Line.zip` isn't reachable from this session**: the user
-    attached it via a GitHub `user-attachments` CDN link
-    (`https://github.com/user-attachments/files/32192689/Add_New_Line.zip`);
-    fetching it returned a 403 with `"This GitHub API path is not
-    available: sessions are bound to their configured repositories"` - this
-    session's GitHub access is scoped to `repos/{owner}/{repo}/...`
-    endpoints only, and a raw attachment CDN link doesn't match that
-    shape. Concrete next step once resolved: whichever way the user
-    re-shares it (committed into the repo under e.g. `templates/
-    Add_New_Line/`, or described directly), implement "create line" as a
-    template walk that string-replaces every `[Add_New_Line]` token in
-    file/folder names and contents with the real line number, writing the
-    result under the selected work order's folder.
+  no code changed yet.
+  - **`Add_New_Line.zip` — RESOLVED**: the user re-uploaded it directly
+    (not the earlier unreachable GitHub attachment link). Inspected it:
+    ```
+    [Add_New_Line]/
+      00_CII/
+        AIBEL-GRN.FIL, CONTROLU, valve.hed, C2.HPL, frp.hed, caesar.cfg,
+        expjt.hed                              (unchanged - CAESAR site config)
+        [Add_New_Line]_Flange_Leakage_TRNC.xlsm  (rename)
+        [Add_New_Line]_MAIN.C2                   (rename - a blank starter model)
+      01_REFS/                                   (empty)
+      02_FINALISATION/                           (empty)
+    ```
+    Exactly matches `line_layout.py`'s existing per-line convention
+    (`CII_DIR`/`REFS_DIR`/`FINAL_DIR`) - confirms this is the SAME
+    `02_FINALISATION` already in the codebase, not a new concept. Checked
+    every file's CONTENT (not just names) for the `[Add_New_Line]` token -
+    only the top-level folder name and the two filenames inside `00_CII`
+    contain it; nothing inside any file's bytes does. So "create line" is
+    now a well-defined, mechanical feature: prompt for a line number, copy
+    this bundled template tree under the selected work order's folder,
+    renaming the top folder and those two files (string-substituting the
+    token), leaving every other file's name and bytes untouched. Needs the
+    template committed into the repo (e.g. `src/documenter/templates/
+    Add_New_Line/`) and added to `autolift.spec`'s bundled data files.
+  - **"FINALIZATION" folder scope for "create work order" — still open**:
+    now that the line template confirms `02_FINALISATION` is per-LINE
+    (nested inside `[Add_New_Line]/`, not at the WO root), the original
+    question sharpens rather than resolves: the "create work order"
+    request describes a folder created directly inside the bare WO folder
+    itself ("a folder for the work order... with a FINALIZATION folder
+    within") - which would be a NEW, WO-level concept, structurally
+    different from any per-line folder, since today's WO folders hold
+    only line-number subfolders and nothing else. Is that really wanted
+    (a second, WO-wide export location, separate from each line's own
+    02_FINALISATION), or was the user describing the per-line one loosely
+    while thinking about "create work order" and "create line" together?
+    Guessing wrong here creates a real, empty folder in every future work
+    order's structure - not cosmetic. Concrete next step once answered: if
+    new, add a `FINALIZATION_DIR`/helper to `line_layout.py` (mirroring
+    `refs_dir`/`final_dir`/`cii_dir`) and create it alongside the WO
+    folder in "create work order"; if it means the per-line one, no WO-
+    level change needed - "create line" (now unblocked) already covers it.
+  - **Two new UI decisions from the same-day follow-up, not blocking, just
+    logged as scope**: (1) `line_ui.py`'s per-line "Sync cases" button is
+    to be removed - `DocumenterApp.refresh()` already calls
+    `_rescan_from_disk()`, which ingests sidecars for every currently-
+    loaded line, i.e. a strict superset of what "Sync cases" does, so the
+    overall Refresh button already covers it; (2) the three creation
+    actions (new WO / new line / new case) become ONE button at a fixed
+    location (proposed: `DocumenterApp`'s left-panel toolbar, beside
+    "Refresh"/"View archive"), whose label and action change based on
+    tree context - "New work order" at the Work Orders root, "Add new
+    line" inside a WO, "New lift case" inside a line (or a case within
+    one) - replacing the separate right-click entry and button ideas from
+    the first to-do list.
 
 ## Stop-and-ask (resolved 2026-09-14 - user answered on the PR, implemented)
 - **RESOLVED**: user replied "Everyone has their own local DB copy, but

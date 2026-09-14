@@ -605,3 +605,27 @@ running status log Claude appends to (skim this from mobile)
   has the file open — logged as a real bug to fix (Phase 1: detect + a
   manual-fallback prompt; Phase 2, explicitly deferred by the user until
   Phase 1 is confirmed working: automate collapsing it via Ctrl+O).
+
+- 2026-09-14: User re-uploaded `Add_New_Line.zip` directly (resolving the
+  earlier unreachable-attachment blocker) and added two more UI points:
+  remove `line_ui.py`'s per-line "Sync cases" button (the overall
+  `DocumenterApp.refresh()` already covers the same ingest via
+  `_rescan_from_disk()`, for every loaded line, not just one), and unify
+  the three requested creation actions (new WO / new line / new case)
+  into a single button whose label/action changes with tree context,
+  rather than separate buttons or right-click entries. Inspected the
+  template (original upload:
+  `/root/.claude/uploads/ccea8e4c-0a82-5e5b-998d-8277c5461143/f86bdf4f-Add_New_Line.zip`,
+  extracted to `/tmp/add_new_line_inspect/extracted` this session): it's
+  exactly `line_layout.py`'s existing per-line structure
+  (00_CII/01_REFS/02_FINALISATION) with the token `[Add_New_Line]`
+  appearing ONLY in the top-level folder name and two filenames inside
+  00_CII (`_Flange_Leakage_TRNC.xlsm`, `_MAIN.C2`) - confirmed by
+  grepping every file's actual bytes, not just names - so this is now a
+  fully-scoped, mechanical feature once committed into the repo. This
+  also sharpens (doesn't resolve) the still-open "FINALIZATION folder for
+  create-work-order" question - now clearer that it would be a genuinely
+  NEW, WO-level folder if built as literally described, not the per-line
+  one the template already has. No code changed yet - posted an updated
+  to-do list on the PR per the user's explicit request, still awaiting
+  confirmation before implementing any of it.
