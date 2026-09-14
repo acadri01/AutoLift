@@ -40,7 +40,7 @@ a = Analysis(
         # two original .spec files)
         'PIL._tkinter_finder', 'PIL.ImageGrab',
         'win32clipboard', 'win32con', 'win32com.client', 'pythoncom',
-        'pywintypes', 'win32api', 'win32gui', 'win32process',
+        'pywintypes',
         'pypdf', 'pypdf._writer', 'pypdf._reader',
         'fitz', 'fitz._fitz',
         'reportlab.pdfgen.canvas',

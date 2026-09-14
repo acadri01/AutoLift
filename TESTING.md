@@ -229,11 +229,15 @@ reporting.
      line's page is gone — the overall "Refresh" button now covers that
      (it already re-checks every open line for new cases).
 
-7. **NEW — CAESAR "file is open" detection, now WITH automation (Phase 2).**
-   With a job open in prepip.exe (so only `*_MAIN._A` exists, no
-   `*_MAIN.C2`), try "New Lift Case" on that line. This is the one most
-   worth watching closely, since it's the newest and least testable from
-   this Linux session:
+7. **NEW — CAESAR "file is open" detection + automation (Phase 2, rebuilt
+   after your "does not seem to do anything" report).** With a job open
+   in prepip.exe (so only `*_MAIN._A` exists, no `*_MAIN.C2`), try "New
+   Lift Case" on that line. This is the one most worth watching closely,
+   since it's the newest and least testable from this Linux session — the
+   automation was rewritten from the ground up (different underlying
+   Windows API calls, plus a fix for the specific restriction that
+   normally stops a background app from stealing focus) to address what
+   most likely caused it to do nothing the first time:
    - AutoLift should try, on its own, to find the prepip.exe window,
      **bring it to the foreground**, and send **Ctrl+O** — you should see
      CAESAR II jump to the front and its File → Open dialog appear,
@@ -249,11 +253,15 @@ reporting.
      (matching what you described in Task Manager), confirm it's genuinely
      the prepip.exe one that gets brought forward, not some other CAESAR
      window.
-   - If bringing the window forward doesn't work at all (some Windows
-     versions restrict a background process from stealing focus), the
-     manual fallback message should still be there and still work exactly
-     as it did before — please report whether the automatic part worked,
-     since this container can't test the real window/focus behavior.
+   - **If it still doesn't do anything**: there's now a log file at
+     `%LOCALAPPDATA%\AutoLift\prepip_automation.log` — please open it
+     after trying and paste its last entry back on the PR. It records
+     exactly what AutoLift saw (how many windows, what process each
+     belonged to, which one it picked, whether bringing it forward
+     actually worked), which will tell us precisely where it's failing
+     instead of guessing again.
+   - The manual fallback message should still work exactly as before
+     regardless of whether the automatic part does anything.
 
 ---
 

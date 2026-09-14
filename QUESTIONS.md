@@ -28,6 +28,21 @@ where Claude parks non-blocking questions + logs assumptions
   explains what to do either way, so a second failure message would be
   redundant, and this must never be able to block/crash lift case
   creation on its own.
+- **Phase 2 rewrite, pywin32 → ctypes (2026-09-14, same day, after a
+  real-machine "does not seem to do anything" report)**: switched from
+  pywin32 to calling `user32.dll`/`kernel32.dll` directly via `ctypes`
+  (matching `line_layout.py`/`ui_dialogs.py`'s existing pattern) and
+  added the standard `AttachThreadInput` workaround for Windows'
+  foreground-lock restriction, `QueryFullProcessImageNameW` under
+  `PROCESS_QUERY_LIMITED_INFORMATION` for cross-privilege process-name
+  lookup, and explicit `c_void_p` prototypes to avoid 64-bit handle
+  truncation - three concrete, well-documented candidates for exactly
+  this "silently does nothing" symptom, not a guess. Also added a debug
+  log (`%LOCALAPPDATA%\AutoLift\prepip_automation.log`) so the NEXT
+  report, if there is one, can be specific rather than another blind
+  guess. This wasn't escalated back to the user as a question - it's a
+  bug-fix/robustness pass within the already-approved Phase 2 automation,
+  not a new design decision.
 - **Milestone 3's `tk.Tk()` → `tk.Toplevel(parent)` refactor (2026-09-14)**:
   built now rather than deferred again, since it's a routine engineering
   call already directed by SPEC.md's milestone wording, not a genuine

@@ -749,3 +749,60 @@ running status log Claude appends to (skim this from mobile)
   foreground-window restriction can sometimes block a background
   process from stealing focus even when called correctly - flagged, not
   something this container can test).
+
+- 2026-09-14: Real-machine report on the first Phase 2 build: "It does
+  not seem to do anything?" Rewrote `prepip_automation.py` from pywin32 to
+  calling `user32.dll`/`kernel32.dll` directly via `ctypes` (matching the
+  pattern already used elsewhere - `line_layout.py`'s `_hide()`,
+  `ui_dialogs.py`'s `show_message()`), targeting two well-documented
+  Win32 issues the first version was exposed to and couldn't rule out
+  without real Windows access:
+  1. The original process-name lookup (`GetModuleFileNameEx`) needs
+     `PROCESS_VM_READ`, a fairly strong permission that can silently fail
+     to open a process running at a different privilege level (e.g. an
+     elevated CAESAR II against a non-elevated AutoLift) - the window
+     would then just never match, no error anywhere. Replaced with
+     `QueryFullProcessImageNameW` under
+     `PROCESS_QUERY_LIMITED_INFORMATION`, a much lower bar and the modern
+     recommended approach.
+  2. `SetForegroundWindow` is deliberately restricted by Windows - a
+     background process normally can't just steal focus on its own (the
+     OS's "foreground lock"). The first version never worked around this
+     at all. Added the standard, documented fix: `AttachThreadInput` with
+     the target window's owning thread before calling
+     `SetForegroundWindow`, detached again afterward.
+  Also fixed a real, previously-latent correctness risk while rewriting:
+  every ctypes call that returns/accepts a window or process handle now
+  has an explicit `c_void_p` prototype - handles are pointer-sized (8
+  bytes on 64-bit Windows), and ctypes silently truncates an undeclared
+  pointer argument to 32 bits, which would itself look exactly like
+  "nothing happened," with no exception raised anywhere.
+  Added a debug trace: every attempt appends what it found/did to
+  `%LOCALAPPDATA%\AutoLift\prepip_automation.log` (window count, each
+  visible/titled window's resolved process name, which one matched,
+  whether `AttachThreadInput`/`SetForegroundWindow` succeeded) - not
+  shown to the user, but gives something concrete to look at if this
+  still doesn't work, rather than guessing blind a third time.
+  `autolift.spec`: removed `win32api`/`win32gui`/`win32process` from
+  hiddenimports (added for the now-replaced pywin32 version; confirmed
+  nothing else in the codebase imports them) - `prepip_automation` itself
+  stays listed since it's still imported lazily.
+  Verified via headless tests against fully mocked `ctypes.windll`
+  equivalents (this container has neither a real Windows API nor pywin32,
+  and `ctypes.windll`/`ctypes.WINFUNCTYPE` don't even exist as attributes
+  on Linux - confirmed directly): window discovery correctly matches only
+  a visible, titled, prepip.exe-owned window among a realistic mix
+  (including two windows on the SAME prepip.exe process where only the
+  visible one should count); the `AttachThreadInput` sequencing (attached
+  before `SetForegroundWindow`, detached after, in that order); the exact
+  Ctrl+O keystroke sequence; both the foreground-refused and
+  no-window-found paths degrading cleanly to `False`; the debug log
+  actually being written with the right content; and, re-running the
+  earlier integration tests, that `lift_case_builder.py`'s call site,
+  the fall-through on exception, and every other CAESAR-detection
+  scenario still all pass unchanged.
+  **Still unverified** (needs the user's real machine, same caveat as
+  before - this container simply cannot exercise real Win32 window/focus
+  behaviour): whether this actually works now. If it still doesn't, the
+  new log file should make the next round of feedback far more specific
+  than "does not seem to do anything."
