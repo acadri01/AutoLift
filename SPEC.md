@@ -111,24 +111,41 @@ runnable commit per CLAUDE.md.
    Zero behaviour change; both programs run unmodified behind
    `src/launcher.py`; both context-menu verbs self-install via
    `src/install_context_menu.py`.
-2. **`tool_discovery.py`.** Generalize `iecho.find_iecho()` into one service
-   resolving iecho.exe, the CAESAR input-GUI exe, and the CAESAR data root
-   (config → env → known paths, cached, clear failure message). Wire a
-   capability probe into startup; gate CAESAR-driving actions on it.
-3. **In-process Creator refactor.** `ui_dialogs.py`'s `tk.Tk()` dialogs →
-   `tk.Toplevel(parent)`. `lift_case_builder.run()` → a callable stage that
-   returns/raises instead of `sys.exit()`. `neutral_reader/writer/patcher.py`
-   and `iecho.py` stay untouched. Verify byte-identical `.CII`/sidecar
-   output against a known-good test case before and after.
-4. **Single-window integration.** Wire a "Create lift case..." entry point
-   into `DocumenterApp`/`LinePanel` that calls the refactored Creator stage
-   in-process — no second window, no subprocess.
-5. **Zero-touch first-run polish.** Seed `lift_case_config.ini` /
-   `lift_doc_tool.cfg` from bundled resources into the persistent app-data
-   location on first run; run the `tool_discovery` probe once and cache the
-   result. (argv dispatch and HKCU registration already shipped in Phase 0
-   — this milestone is just the remaining cfg-seeding + probe-caching
-   piece.)
+2. **`tool_discovery.py`.** ✅ **Done**. Generalized `iecho.find_iecho()`
+   into one service resolving iecho.exe (config → env → known paths,
+   cached, clear failure message) with a `probe_capabilities()` capability
+   probe gating CAESAR-driving actions. The CAESAR input-GUI exe / CAESAR
+   data root resolution SPEC.md's wording also names are deliberately not
+   built yet — no current feature drives either (see QUESTIONS.md).
+3. **In-process Creator refactor.** ✅ **Done**. `ui_dialogs.py`'s 5
+   dialogs now support `tk.Toplevel(parent)` (additive - `parent=None`
+   preserves the exact previous `tk.Tk()` behaviour for every existing
+   caller). `lift_case_builder.run()` returns/raises instead of calling
+   `sys.exit()`, and takes a `parent` it threads into every dialog it
+   opens. `neutral_reader/writer/patcher.py` and `iecho.py` stayed
+   untouched, as required.
+4. **Single-window integration.** ✅ **Done**. `DocumenterApp`'s line
+   right-click menu has a "Create lift case..." entry that calls
+   `lift_case_builder.run(parent=self)` in-process — no second window, no
+   subprocess — then ingests the freshly written sidecar and refreshes
+   the tree/panel on success.
+5. **Zero-touch first-run polish.** ✅ **Done** (config/DB relocation to
+   AppData). Per direct instruction (2026-09-14: "Everyone has their own
+   local DB copy... The default path for the DB should be in the AppData
+   folder for 'AutoLift'") — each engineer's database is their own local
+   copy, so no cross-machine discovery is needed. `lift_case_config.ini`
+   and `lift_doc_tool.cfg` now both live in `%LOCALAPPDATA%\AutoLift\`
+   (see `src/shared/app_paths.py`), independent of wherever the exe runs
+   from; a config left over next to the exe from before this change is
+   migrated forward automatically, once. The Documenter's database now
+   defaults into that same folder with zero prompts (replacing the old
+   one-click "choose a database location" first-run dialog), and silently
+   self-heals back to that default if its configured location ever
+   becomes unreachable. (argv dispatch and HKCU registration already
+   shipped in Phase 0.) Still open: whether to add a "merge another
+   engineer's database" action to Database admin, for when someone takes
+   over a colleague's files — flagged as a possible future enhancement,
+   not built (see QUESTIONS.md).
 6. **RUN_PENDING completion detection.** A new `.c2db`-mtime watcher (same
    shape as `ui_dialogs.CiiPollingDialog`) — no existing "C2Watchdog"
    pattern was found to reuse, so this is new work. Lowest priority; the
@@ -136,10 +153,12 @@ runnable commit per CLAUDE.md.
    switches to the Documenter themselves once CAESAR finishes solving).
 
 ## Known open decisions (pre-answer what you can)
-- First-run DB discovery heuristic for milestone 5 (exactly where/how to
-  find an existing `lift_doc_tool.cfg` on a fresh machine so a team's
-  shared database is picked up with zero prompts) — not yet specified.
-  Needs a concrete answer when milestone 5 starts.
+- Milestone 5's first-run DB discovery question is resolved (2026-09-14):
+  each engineer has their own local database, defaulting into
+  `%LOCALAPPDATA%\AutoLift\` - no cross-machine discovery needed. Whether
+  to add a database-merge action to Database admin (for someone taking
+  over a colleague's files) is still open, flagged as a possible future
+  enhancement in QUESTIONS.md - not blocking anything.
 - Whether milestone 6 (RUN_PENDING automation) is worth building at all,
   given it's net-new work with no existing pattern to reuse and the
   workflow already closes without it — flagged, not blocking milestones

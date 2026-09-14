@@ -164,6 +164,29 @@ reporting.
    This is the newest, least-tested code in this round — please try both
    a normal completion and a cancel partway through.
 
+5. **NEW — database/config now default into AppData, zero prompts.** Per
+   your PR reply ("Everyone has their own local DB copy... The default
+   path for the DB should be in the AppData folder for 'AutoLift'"):
+   - **On a genuinely fresh machine** (no `lift_case_config.ini` or
+     `lift_doc_tool.cfg` anywhere yet), launching either the Creator or
+     the Documenter for the first time should need **zero dialogs** about
+     where anything lives — the Documenter's old "choose a database
+     location" first-run prompt is gone. Check that
+     `%LOCALAPPDATA%\AutoLift\` (type `%LOCALAPPDATA%` into Explorer's
+     address bar, then look for an `AutoLift` folder) now contains
+     `lift_case_config.ini`, `lift_doc_tool.cfg`, and `lift_markup.db`
+     after that first launch.
+   - **If you already have a `lift_doc_tool.cfg`/`lift_case_config.ini`
+     sitting next to your current exe** from before this change: the
+     first launch after updating should pick it up automatically (same
+     database, same settings) rather than starting you over with an
+     empty one — confirm your existing lift cases/work orders are still
+     there in the tree, not reset.
+   - This is a foundational change (every config/DB read or write now
+     goes through a different path) — please do a normal full session
+     (open a line, view a case) rather than just checking the folder
+     exists.
+
 ---
 
 ## Prerequisites
@@ -286,10 +309,12 @@ run, it also silently writes two registry keys under
 `HKCU\Software\Classes\Directory\Background\shell\` — no dialog, no admin
 prompt.
 
-**What to expect**: either the Lift Mark-up Documenter's first-run "choose
-a database location" prompt (if no `lift_doc_tool.cfg` exists yet next to
-the exe) or its main window, depending on whether a database is already
-configured. No console window should appear (the build is `--noconsole`).
+**What to expect**: the Lift Mark-up Documenter's main window opens
+directly — no first-run prompt. On a genuinely first run (no
+`lift_doc_tool.cfg` anywhere yet), it silently creates its database at
+`%LOCALAPPDATA%\AutoLift\lift_markup.db` and writes that path into a new
+`%LOCALAPPDATA%\AutoLift\lift_doc_tool.cfg`. No console window should
+appear (the build is `--noconsole`).
 
 ## Step 5 — Verify both context-menu verbs
 

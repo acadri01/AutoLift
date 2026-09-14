@@ -188,9 +188,48 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
-## Stop-and-ask (blocking - Milestone 5 "zero-touch first-run" scope, 2026-09-14)
-- **What should "zero-touch first-run" actually mean for config/DB
-  location, and is it worth building?** SPEC.md's milestone 5 says to
+## Stop-and-ask (resolved 2026-09-14 - user answered on the PR, implemented)
+- **RESOLVED**: user replied "Everyone has their own local DB copy, but
+  merging databases in the DB admin may be a good option if someone takes
+  over another person's files. The default path for the DB should be in
+  the AppData folder for 'AutoLift'." Read as: (1) confirms the per-seat
+  model (no cross-machine discovery needed - each engineer's DB is
+  independently theirs), (2) the concrete zero-touch default: both
+  `lift_case_config.ini` and `lift_doc_tool.cfg`, plus the database
+  itself, now default into `%LOCALAPPDATA%\AutoLift\` with NO first-run
+  prompt at all, and (3) a "merge another engineer's database" action in
+  Database admin is a possible FUTURE enhancement ("may be a good
+  option"), not a firm ask - logged below under "Open, non-blocking"
+  rather than built now, since it's a materially bigger feature (comparing/
+  merging two SQLite databases, resolving overlapping WO/line/case
+  records) that deserves its own scoping pass if/when actually wanted.
+  Implemented: new `src/shared/app_paths.py` (`autolift_appdata_dir()`,
+  `%LOCALAPPDATA%\AutoLift`, created on demand); `config.py`'s
+  `_config_path()` and `doc_config.py`'s `cfg_path()` both resolve there
+  now instead of "next to the exe," each with a one-time, self-healing
+  migration of a pre-existing exe-adjacent config forward (so no one's
+  existing settings/DB pointer is silently lost by this change).
+  `lift_documenter.py`'s old one-click "choose a database location"
+  first-run dialog (`_ask_db`) is removed entirely - `_resolve_db_path()`
+  now defaults straight into the AppData folder with zero prompts, and
+  silently re-defaults there if a configured location ever becomes
+  unreachable (e.g. deleted), rather than erroring or re-prompting.
+  `MERGE_PLAN.md`'s "Data / install location" section (which had assumed
+  a shared-network-drive model from one sample config file, not a direct
+  instruction) is marked superseded rather than silently left to mislead
+  a future reader. Verified via headless tests exercising the real
+  functions (this container has no real `tkinter`, so `lift_documenter`
+  was imported against a minimal stub of its GUI-heavy siblings):
+  fresh-path resolution, legacy-config migration (both `config.py` and
+  `doc_config.py`, including that non-`db` keys like `markup_cloud`
+  survive the migration), the full `write_default_config()` →
+  `default_spacing_mm()` round-trip through the new location, the
+  zero-touch default path with no prompt, its persistence back to the
+  config, and silent recovery when a configured `db=` path's folder no
+  longer exists. Original question preserved below for the record.
+- Original question, preserved for context: **What should "zero-touch
+  first-run" actually mean for config/DB location, and is it worth
+  building?** SPEC.md's milestone 5 says to
   "seed `lift_case_config.ini` / `lift_doc_tool.cfg` from bundled
   resources into the persistent app-data location on first run" and
   "run the `tool_discovery` probe once and cache the result." Before
@@ -404,6 +443,17 @@ where Claude parks non-blocking questions + logs assumptions
     change needed, and this can be logged as a resolved non-issue instead.
 
 ## Open, non-blocking (need input before the relevant build step, not now)
+- **"Merge another engineer's database" in Database admin** (per direct
+  instruction, 2026-09-14: "merging databases in the DB admin may be a
+  good option if someone takes over another person's files") - a real
+  feature idea, explicitly hedged as optional ("may be"), not built.
+  Would need its own scoping pass before implementation: how to reconcile
+  overlapping work-order/line/case records between two independent
+  SQLite databases (same WO number created independently on two
+  machines? same case name, different data?), what "merge" should do on
+  a genuine conflict (keep both? prefer one? ask per-conflict?), and
+  where in `_open_db_admin`'s existing UI it belongs. Revisit if/when
+  this scenario (taking over a colleague's files) actually comes up.
 - **Natural-sort for `lines_for_wo`/`wos()`** (see the assumption above) -
   not reported, no manual-reorder UI exists for either yet, so left as
   plain alphabetical. Revisit if line/WO numbering ever produces the same

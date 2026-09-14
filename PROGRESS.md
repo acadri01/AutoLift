@@ -519,3 +519,36 @@ running status log Claude appends to (skim this from mobile)
   branches and an explicit "what I'll do once you answer" for each. No
   code changed for this milestone; nothing currently working is affected
   by leaving it open. Posted to the user on the PR rather than guessing.
+
+- 2026-09-14: Implemented Milestone 5 per the user's PR answer ("Everyone
+  has their own local DB copy... The default path for the DB should be in
+  the AppData folder for 'AutoLift'"). New `src/shared/app_paths.py`
+  (`autolift_appdata_dir()` → `%LOCALAPPDATA%\AutoLift`, created on
+  demand). `config.py` (Creator) and `doc_config.py` (Documenter) both
+  resolve their config files there now instead of "next to the exe," each
+  migrating a pre-existing exe-adjacent file forward automatically, once,
+  so no one's current settings/DB pointer is lost by the change.
+  `lift_documenter.py`'s old one-click "choose a database location"
+  first-run dialog is gone entirely — the database now defaults straight
+  into `%LOCALAPPDATA%\AutoLift\lift_markup.db` with zero prompts, and
+  silently re-defaults there if a configured location ever becomes
+  unreachable rather than erroring or re-prompting. Marked
+  `MERGE_PLAN.md`'s "Data / install location" section (which had assumed
+  a shared-network-drive model from one sample config file) superseded
+  rather than leaving it to mislead a future reader; updated SPEC.md's
+  milestone 2/3/4/5 entries to reflect what's actually built. The
+  optional "merge another engineer's database" idea from the same PR
+  reply is logged in QUESTIONS.md as a future enhancement, not built —
+  it's a materially bigger feature (reconciling two independent SQLite
+  databases) that deserves its own scoping pass. `autolift.spec` gained
+  `app_paths` in hiddenimports. Verified: `py_compile` clean; headless
+  tests against the real functions (this container has no `tkinter`, so
+  `lift_documenter` was imported against a minimal stub of its GUI-heavy
+  siblings) covering fresh-path resolution, legacy-config migration for
+  both config files (including that non-`db` keys survive), the full
+  `write_default_config()` → `default_spacing_mm()` round-trip, the
+  zero-touch default with no prompt and its persistence back to the
+  config, and silent recovery when a configured path's folder no longer
+  exists. **Still unverified** (needs a real Windows session): that a
+  genuinely fresh machine actually gets a working, empty database with no
+  dialogs at all on first launch.

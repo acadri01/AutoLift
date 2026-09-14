@@ -56,18 +56,43 @@ _DEFAULTS = {
 # Locate config file
 # ---------------------------------------------------------------------------
 
-def _config_path() -> Path:
+def _legacy_config_path() -> Path:
     """
-    Return the path of lift_case_config.ini, co-located with the executable
-    (PyInstaller) or the entry-point script (plain Python).
+    Where lift_case_config.ini used to live (co-located with the exe/script)
+    before the 2026-09-14 move to a fixed AppData location - kept only to
+    migrate an existing file forward, once, on first run after the update.
     """
     if getattr(sys, "frozen", False):
-        # Running as a PyInstaller .exe — use the folder containing the exe
         base = Path(sys.executable).parent
     else:
-        # Running as plain Python — use the folder containing this file
         base = Path(__file__).parent
     return base / "lift_case_config.ini"
+
+
+def _config_path() -> Path:
+    """
+    Return the path of lift_case_config.ini, in AutoLift's fixed per-user
+    AppData location (see app_paths.autolift_appdata_dir) - independent of
+    wherever the exe itself happens to run from, so it survives an
+    exe move/reinstall or a read-only exe folder (per direct instruction,
+    2026-09-14 - "zero-touch first-run").
+
+    A config file left over from before this change (co-located with the
+    exe/script) is migrated in place, once: if the new location has no
+    file yet but the legacy one does, it's copied forward so existing
+    settings (a custom iecho path, non-default spacing) aren't silently
+    lost on the first run after updating.
+    """
+    import app_paths
+    new_path = Path(app_paths.autolift_appdata_dir()) / "lift_case_config.ini"
+    if not new_path.exists():
+        legacy = _legacy_config_path()
+        if legacy.exists():
+            try:
+                new_path.write_bytes(legacy.read_bytes())
+            except OSError:
+                pass
+    return new_path
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ a = Analysis(
         'clipboard_io', 'fonts', 'markup_weights_ui', 'preview',
         'preview_pane',
         # shared
-        'lift_meta', 'line_layout',
+        'lift_meta', 'line_layout', 'app_paths',
         # third-party bits PyInstaller under-detects (carried over from the
         # two original .spec files)
         'PIL._tkinter_finder', 'PIL.ImageGrab',

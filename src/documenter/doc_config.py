@@ -26,13 +26,38 @@ from typing import Dict, Optional
 CFG_NAME = "lift_doc_tool.cfg"
 
 
-def _app_dir() -> str:
+def _legacy_app_dir() -> str:
+    """Where lift_doc_tool.cfg used to live (co-located with the exe/script)
+    before the 2026-09-14 move to a fixed AppData location - kept only to
+    migrate an existing file forward, once, on first run after the update."""
     return (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
             else os.path.dirname(os.path.abspath(__file__)))
 
 
 def cfg_path() -> str:
-    return os.path.join(_app_dir(), CFG_NAME)
+    """
+    lift_doc_tool.cfg's path, in AutoLift's fixed per-user AppData location
+    (see app_paths.autolift_appdata_dir) - independent of wherever the exe
+    itself happens to run from, per direct instruction (2026-09-14 -
+    "zero-touch first-run", database path defaults into AppData).
+
+    A config file left over from before this change (co-located with the
+    exe/script) is migrated in place, once: if the new location has no
+    file yet but the legacy one does, it's copied forward so an existing
+    `db=` pointer (and any markup_* weight overrides) aren't silently lost
+    on the first run after updating.
+    """
+    import app_paths
+    new_path = os.path.join(app_paths.autolift_appdata_dir(), CFG_NAME)
+    if not os.path.isfile(new_path):
+        legacy = os.path.join(_legacy_app_dir(), CFG_NAME)
+        if os.path.isfile(legacy):
+            try:
+                with open(legacy, "rb") as src, open(new_path, "wb") as dst:
+                    dst.write(src.read())
+            except OSError:
+                pass
+    return new_path
 
 
 def load() -> Dict[str, str]:

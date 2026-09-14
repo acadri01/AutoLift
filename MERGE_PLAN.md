@@ -145,6 +145,15 @@ exactly as HANDOFF.md's graceful-degradation constraint requires.
 
 ## Data / install location — preserved, not redesigned
 
+> **Superseded 2026-09-14**: this section's "shared network drive" model
+> was an inference from one sample `lift_doc_tool.cfg`, not a direct
+> instruction - the user has since said directly "Everyone has their own
+> local DB copy... The default path for the DB should be in the AppData
+> folder for 'AutoLift'." Milestone 5 (SPEC.md) implements THAT model:
+> each engineer's database is their own local copy in
+> `%LOCALAPPDATA%\AutoLift\`, no shared-drive discovery. Kept below for
+> the historical reasoning, not as the current design.
+
 The DB stays exactly where it is today: a `lift_doc_tool.cfg`-pointed
 SQLite file, typically on a shared project drive (confirmed from the
 provided `lift_doc_tool.cfg`, which points at a live network share serving

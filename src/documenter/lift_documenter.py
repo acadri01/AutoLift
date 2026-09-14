@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tkinter as tk
-from tkinter import filedialog, messagebox
 
 import doc_config
 import lift_meta as meta
@@ -36,22 +34,35 @@ from lift_db import LiftDb
 DB_NAME = "lift_markup.db"
 
 
-def _read_cfg() -> str | None:
-    return doc_config.get("db") or None
+def _default_db_path() -> str:
+    """AutoLift's fixed per-user AppData location for the database - see
+    app_paths.autolift_appdata_dir."""
+    import app_paths
+    return os.path.join(app_paths.autolift_appdata_dir(), DB_NAME)
 
 
-def _write_cfg(db_path: str) -> None:
-    # merge-write: preserves markup_* weights and any other future keys
-    doc_config.set("db", db_path)
+def _resolve_db_path() -> str:
+    """
+    The database path to use: whatever `lift_doc_tool.cfg`'s `db=` line
+    already says (an explicit choice, or a legacy pre-2026-09-14 value
+    migrated forward by doc_config.cfg_path()), or - with no prompt at
+    all - the zero-touch default in AutoLift's AppData folder (per direct
+    instruction, 2026-09-14: "Everyone has their own local DB copy... The
+    default path for the DB should be in the AppData folder for
+    'AutoLift'"). A missing/unreachable configured folder (e.g. it was
+    deleted) silently falls back to the same default rather than erroring
+    or re-prompting, keeping every run zero-touch.
 
-
-def _ask_db(root: tk.Tk) -> str | None:
-    messagebox.showinfo("Lift Mark-up Database",
-        "First run: choose where the database should live.\n\n"
-        "Pick a location OUTSIDE the job folders - one database serves every "
-        "work order.", parent=root)
-    d = filedialog.askdirectory(parent=root, title="Database folder")
-    return os.path.join(d, DB_NAME) if d else None
+    Persists the resolved default back to the config the first time, so
+    it's visible and editable there (the flat key=value file already
+    supports hand-editing `db=` to point elsewhere).
+    """
+    configured = doc_config.get("db")
+    if configured and os.path.isdir(os.path.dirname(configured)):
+        return configured
+    default = _default_db_path()
+    doc_config.set("db", default)
+    return default
 
 
 def _ingest_line(db: LiftDb, wo_id: int, line_root: str) -> int:
@@ -71,15 +82,7 @@ def main() -> int:
     if not os.path.isdir(folder):
         folder = os.path.dirname(folder)
 
-    boot = tk.Tk(); boot.withdraw()
-    db_path = _read_cfg()
-    if not db_path or not os.path.isdir(os.path.dirname(db_path)):
-        db_path = _ask_db(boot)
-        if not db_path:
-            boot.destroy(); return 1
-        _write_cfg(db_path)
-    boot.destroy()
-
+    db_path = _resolve_db_path()
     db = LiftDb(db_path)
     mode = LL.classify(folder)
 
