@@ -188,6 +188,74 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
+## Stop-and-ask (blocking - Milestone 5 "zero-touch first-run" scope, 2026-09-14)
+- **What should "zero-touch first-run" actually mean for config/DB
+  location, and is it worth building?** SPEC.md's milestone 5 says to
+  "seed `lift_case_config.ini` / `lift_doc_tool.cfg` from bundled
+  resources into the persistent app-data location on first run" and
+  "run the `tool_discovery` probe once and cache the result." Before
+  touching this, I checked what actually happens today (unchanged from
+  the two original programs, per `launcher.py`'s "no behaviour changed"
+  guarantee):
+  - Both configs already resolve to the SAME folder today - the one
+    containing the single merged `autolift.exe` (`config.py`'s
+    `_config_path()` and `doc_config.py`'s `cfg_path()` both use
+    `Path(sys.executable).parent` when frozen). So a team running one
+    shared copy of the exe (from a network drive, say) already gets one
+    shared `lift_case_config.ini` AND `lift_doc_tool.cfg`, with zero
+    extra work - Phase 0's merge already solved the "do both configs
+    agree" half of this for free.
+  - The Creator already seeds its own default `lift_case_config.ini` on
+    first run (`config.write_default_config()`, called from
+    `create_lift_case.main()` - pre-existing, unmodified).
+  - The Documenter already has a working (if not silent) first-run flow:
+    `lift_documenter.py`'s `_ask_db()` shows one message + one folder
+    picker the very first time, explicitly telling the user to "Pick a
+    location OUTSIDE the job folders - one database serves every work
+    order," then persists the choice to `lift_doc_tool.cfg`. Every
+    subsequent launch is already silent.
+  - So the REAL gap milestone 5 is asking to close is narrower than it
+    first reads: not "make configs agree" (already true) and not "handle
+    first run at all" (already handled, just not silently) - it's
+    specifically "make even the FIRST launch need zero clicks by
+    auto-discovering a team's already-existing shared database/config,"
+    which only matters at all if AutoLift is deployed as a PER-SEAT
+    install (each engineer gets their own local copy of the exe) rather
+    than run from one shared location. If it's always run from one
+    shared copy, there's nothing left to build here.
+  - This is a real product decision, not a coding one: how AutoLift is
+    actually rolled out to engineers at Kårstø (one shared network
+    install vs. per-machine copies) decides whether "discovery" is
+    needed at all, and if per-seat, exactly where to look (a fixed
+    company file-share path? a value baked in at install time? scanning
+    common install locations?) is something only you know, not something
+    inferable from the code. Guessing here risks either scattering a
+    team onto silently-separate databases, or auto-adopting the wrong
+    shared one - a data-integrity mistake, not a cosmetic one.
+  - **Not attempted**: no code changed for milestone 5. The already-working
+    one-click-on-first-run behaviour above is left exactly as-is - nothing
+    is broken or regressed by leaving this open.
+  - Concrete next step once you answer:
+    - **If AutoLift always runs from one shared location** (network
+      share, shared login, etc.): milestone 5 is effectively done already
+      by the Phase-0 merge; the only remaining polish is caching
+      `tool_discovery.probe_capabilities()`'s result across separate
+      process launches (e.g. a small `probed_at`/`iecho_path` pair
+      written into whichever config file already exists) so it isn't
+      re-run on every single context-menu click - a small, unambiguous
+      change I can make without further input if you'd like it.
+    - **If each engineer gets their own local install**: tell me the
+      actual convention (a fixed path, an environment variable, a value
+      the installer sets) for where to find the team's shared
+      `lift_doc_tool.cfg`/database, and whether `lift_case_config.ini`
+      should be shared the same way or stay per-seat (it only holds
+      spacing/displacement/iecho-path defaults, which arguably SHOULD be
+      per-seat if different engineers' machines have iecho installed in
+      different places). Once you tell me the convention, I'll wire it
+      into `config.py`/`doc_config.py` right where `write_default_config()`
+      /`_ask_db()` already live, with the existing prompt as the fallback
+      when nothing is found.
+
 ## Stop-and-ask (resolved 2026-09-14 - user confirmed a hybrid design, implemented)
 - **RESOLVED**: user chose a hybrid of options (B) and (C): "I think we
   should go for something along the lines of option 3. The program should
@@ -351,9 +419,7 @@ where Claude parks non-blocking questions + logs assumptions
   build sequence in MERGE_PLAN.md). If a C2Watchdog module exists elsewhere,
   point Claude at it before that step starts so it isn't rebuilt from
   scratch.
-- First-run DB discovery on a fresh machine: the plan assumes it should
-  "find and reuse the existing lift_doc_tool.cfg next to wherever the
-  previous exes were run from, if discoverable." The exact discovery
-  heuristic (where to look, what counts as "discoverable") isn't specified
-  yet and will need a concrete answer when zero-touch first-run (build step
-  6) is implemented.
+- First-run DB discovery on a fresh machine: superseded by the fuller
+  "Stop-and-ask (blocking - Milestone 5 ...)" entry above (2026-09-14),
+  which found the actual gap is narrower than originally assumed here and
+  put concrete options to the user.

@@ -496,3 +496,26 @@ running status log Claude appends to (skim this from mobile)
   Windows/Tkinter session): actually clicking "Create lift case..." from
   the Documenter and watching a dialog open as a child of the main window
   rather than its own separate top-level window - flagged in TESTING.md.
+
+- 2026-09-14: Investigated Milestone 5 ("zero-touch first-run polish")
+  before starting it, per CLAUDE.md's stop-and-ask criteria. Found the
+  existing "First-run DB discovery" open question in QUESTIONS.md was
+  under-specified (no concrete options, no "what to do once answered"),
+  and on closer reading of the actual current behaviour, the real gap is
+  narrower than the note assumed: `config.py`/`doc_config.py` already
+  co-locate both config files next to the single merged `autolift.exe`
+  (so a team running one shared exe copy already shares both configs with
+  zero extra work — Phase 0's merge already solved that half), the
+  Creator already seeds its own `lift_case_config.ini` on first run, and
+  the Documenter's `_ask_db()` already has a working (one-click, not
+  silent) first-run flow. What's actually still open is narrower and
+  hinges entirely on a real-world fact only the user has: whether AutoLift
+  is deployed as one shared install or per-seat copies - the latter is
+  the only case "zero-touch discovery" would even need to solve, and
+  guessing the discovery heuristic wrong risks a real data-integrity
+  mistake (scattering a team onto separate databases, or auto-adopting
+  the wrong shared one), not just a cosmetic issue. Rewrote the
+  QUESTIONS.md entry as a proper blocking Stop-and-ask with concrete
+  branches and an explicit "what I'll do once you answer" for each. No
+  code changed for this milestone; nothing currently working is affected
+  by leaving it open. Posted to the user on the PR rather than guessing.
