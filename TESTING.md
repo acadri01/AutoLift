@@ -22,13 +22,20 @@ This document is two things:
 
 ## Test this now
 
-**First: update your local checkout.** See "Getting the latest changes"
-under Step 1 below (`git checkout claude/repo-mapping-modules-xomccd` then
-`git pull`), then rebuild with `python -m PyInstaller autolift.spec` (Step
-3 — that exact form, not bare `pyinstaller`, which doesn't reliably work
-on Windows). Compare `git log -1 --oneline` against what's shown at the
-top of [PR #2](https://github.com/acadri01/AutoLift/pull/2) to confirm
-you're on the latest commit.
+**Nothing outstanding right now.** Everything below was confirmed working
+by you on the real machine (including the CAESAR automation sequencing fix)
+and [PR #2](https://github.com/acadri01/AutoLift/pull/2) has been merged
+into `main`. If you pull `main` fresh and rebuild
+(`python -m PyInstaller autolift.spec` — Step 3 below, that exact form, not
+bare `pyinstaller`), you should see the same behaviour you already
+confirmed; there's no new ask waiting on you at the moment. The next
+outstanding items (Milestone 6 "RUN_PENDING" detection, and a "merge
+another engineer's database" DB-admin feature) haven't been started yet —
+this section will be rewritten with concrete steps once one of them is
+underway.
+
+<details>
+<summary>Previously confirmed round (kept for reference — already verified, no action needed)</summary>
 
 1. **Three Documenter fixes from your report — please re-check all three:**
    - **Case order was alphabetical, not numeric by node** ("node 1000
@@ -270,6 +277,8 @@ reporting.
    - The manual fallback message should still work exactly as before
      regardless of whether the automatic part does anything.
 
+</details>
+
 ---
 
 ## Prerequisites
@@ -290,12 +299,12 @@ reporting.
 ```
 git clone https://github.com/acadri01/AutoLift.git
 cd AutoLift
-git checkout claude/repo-mapping-modules-xomccd
 ```
 
-(That branch is the current work-in-progress being tested — it's the head
-of [PR #2](https://github.com/acadri01/AutoLift/pull/2). Once that PR is
-merged, `main` will have it and this checkout step won't be needed.)
+(You'll land on `main` by default — that's the branch to build from.
+[PR #2](https://github.com/acadri01/AutoLift/pull/2), which used to be the
+work-in-progress branch this doc pointed you at, has been merged, so no
+extra `git checkout` step is needed any more.)
 
 (If you downloaded a ZIP from GitHub instead, extract it and `cd` into the
 extracted folder — skip the `git` commands, but you'll need to re-download
@@ -303,12 +312,12 @@ the ZIP each time there's an update, since the steps below don't apply.)
 
 ### Getting the latest changes (every time after the first)
 
-I never rewrite history on this branch — I only add commits — so a plain
-`git pull` always works cleanly, no force needed:
+History on `main` isn't rewritten — only added to — so a plain `git pull`
+always works cleanly, no force needed:
 
 ```
 cd AutoLift
-git checkout claude/repo-mapping-modules-xomccd
+git checkout main
 git pull
 ```
 
@@ -323,8 +332,8 @@ Two things worth knowing:
   `git checkout -- .` to discard them, then pull.
 
 You can always confirm you're on the latest commit with
-`git log -1 --oneline` and compare against what's shown at the top of
-[PR #2](https://github.com/acadri01/AutoLift/pull/2).
+`git log -1 --oneline` and compare against what's shown at the top of the
+[commit history on `main`](https://github.com/acadri01/AutoLift/commits/main).
 
 ## Step 2 — Install the Python dependencies
 
