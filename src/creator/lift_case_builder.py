@@ -7,10 +7,13 @@ Steps
 -----
 1. Resolve folder (from %V arg, or FolderSelectDialog)
 1b. If only a *_MAIN._A file exists (no *_MAIN.C2) - CAESAR II/prepip.exe
-    currently has the model open, "expanding" it - stop and tell the user
-    how to collapse it back, polling for *_MAIN.C2 to reappear before
-    continuing. A ._A-only model doesn't carry all the information a
-    lift case needs (added 2026-09-14; see prompt_main_expanded).
+    currently has the model open, "expanding" it - try once, silently, to
+    collapse it back automatically (find prepip.exe's window, bring it
+    forward, send Ctrl+O - see prepip_automation.try_collapse_main_file,
+    added 2026-09-14 as Phase 2), then show a poll-and-instructions
+    screen either way as confirmation/fallback, waiting for *_MAIN.C2 to
+    reappear before continuing (Phase 1, see prompt_main_expanded). A
+    ._A-only model doesn't carry all the information a lift case needs.
 2. Prompt for node count and node numbers
 3. Prompt for per-node spacing and displacement (750/10 defaults)
 4. Copy _MAIN.C2 → {prefix}_N10-N20.C2  (preserves load cases)
@@ -154,13 +157,27 @@ def run(initial_folder: Optional[Path] = None,
     # alone doesn't carry all the information a lift case needs (per direct
     # instruction, 2026-09-14: using it produces an incorrect lift case,
     # silently). _find_main_input() always prefers a .C2 match when one
-    # exists, so reaching a ._A match here means none does. Phase 1 (this):
-    # detect it, tell the user how to collapse the file back (close CAESAR
-    # II entirely, or File > Open / Ctrl+O in prepip.exe), and poll for
-    # *_MAIN.C2 to reappear before proceeding - never automate the
-    # collapse itself yet (Phase 2, explicitly deferred until this
-    # fallback is confirmed working).
+    # exists, so reaching a ._A match here means none does.
+    #
+    # Phase 2 (per direct instruction, 2026-09-14, confirming Phase 1's
+    # fallback works well): before falling back to the manual-instructions
+    # dialog, make ONE silent, best-effort attempt to collapse the file
+    # automatically - find prepip.exe's window, bring it to the
+    # foreground, and send Ctrl+O (File > Open), exactly what a user
+    # already does by hand. "As much of this to be a background process,
+    # apart from bringing the window forward" - no AutoLift-side prompt
+    # for the attempt itself, it just happens. This never blocks or fails
+    # the workflow on its own: prepip_automation.try_collapse_main_file()
+    # swallows every failure and returns False, and MainExpandedDialog's
+    # own poll-and-instructions screen (Phase 1) is still shown either
+    # way as the real confirmation + manual fallback - it simply finds
+    # *_MAIN.C2 already there (near-instantly) when the automation worked.
     if main_input.suffix.upper() == "._A":
+        try:
+            import prepip_automation
+            prepip_automation.try_collapse_main_file()
+        except Exception:
+            pass   # best-effort only - the dialog below is the real fallback
         if not prompt_main_expanded(folder, parent=parent):
             return True   # aborted - same "cleanly cancelled" contract as the other early-outs
         main_input = _find_main_input(folder)

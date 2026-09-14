@@ -695,3 +695,57 @@ running status log Claude appends to (skim this from mobile)
   **Still unverified** (needs a real Windows/Tkinter session): actually
   clicking through the new toolbar button and the CAESAR-open detection
   dialog in the real app - flagged in TESTING.md.
+
+- 2026-09-14: Built Phase 2 of the CAESAR `.C2`/`._A` fix, per the user's
+  confirmation that Phase 1 works well and explicit go-ahead: "Let's
+  automate the collapse of the *MAIN.C2 file. In the task manager I am
+  able to see two Caesar II windows when the file is expanded. We have
+  to find the one with the prepip.exe bring it forward and send Ctrl +
+  O. I would like as much of this to be a background process, apart from
+  bringing the window forward obviously." New `src/creator/
+  prepip_automation.py`: `find_prepip_window()` enumerates top-level
+  windows (pywin32's `EnumWindows`), skipping invisible/untitled ones,
+  and matches each candidate's OWNING PROCESS executable name (via
+  `OpenProcess`/`GetModuleFileNameEx`, not window title text, since the
+  user noted multiple CAESAR-branded windows can be visible at once and
+  only one is actually prepip.exe) against `prepip.exe` case-insensitively
+  (using `ntpath.basename`, not `os.path.basename`, so the Windows-style
+  backslash path from the Win32 API parses correctly regardless of which
+  OS this code happens to run under - not just the real Windows target).
+  `try_collapse_main_file()` brings that window to the foreground
+  (`SetForegroundWindow`, with an `IsIconic`/`ShowWindow(SW_RESTORE)`
+  check first) and sends Ctrl+O (`keybd_event`), matching the manual fix
+  already documented. `lift_case_builder.py`'s Step 1b now calls this
+  ONCE, silently, before showing `MainExpandedDialog` - "as much of this
+  to be a background process" - with the whole call wrapped in a bare
+  `try/except` so any failure (pywin32 missing, no window found, the OS
+  refusing the foreground change - a well-known Windows restriction) is
+  swallowed and falls straight through to Phase 1's existing
+  poll-and-manual-instructions dialog, never blocking or crashing the
+  workflow. `MainExpandedDialog`'s text updated to explain the window
+  jump (since it now happens automatically, unprompted) while still
+  giving the manual steps as a fallback. `autolift.spec` gained
+  `prepip_automation` plus `win32api`/`win32gui`/`win32process` in
+  hiddenimports (imported lazily inside functions, where PyInstaller's
+  static analysis is most likely to miss them).
+  Verified via headless tests against a fully mocked pywin32 (this
+  container has neither pywin32 nor a real Windows display): window
+  discovery correctly finds ONLY the true prepip.exe window among a mix
+  of visible/invisible/untitled/wrong-process windows; the
+  ntpath-vs-os.path fix confirmed necessary and sufficient (this exact
+  test failed before that fix, on this Linux container, exactly
+  illustrating why explicit `ntpath` matters); the full happy path
+  (window found → foreground → exact Ctrl-down/O-down/O-up/Ctrl-up
+  keystroke sequence); a refused foreground change correctly returns
+  False with no keystrokes sent; no matching window correctly returns
+  False with nothing attempted; and, integrated into `lift_case_builder.py`,
+  confirmed `try_collapse_main_file()` is called automatically before the
+  fallback dialog on `._A` detection, AND that an exception raised inside
+  it (simulating a real pywin32 crash) never breaks the workflow - it
+  still falls through to the existing manual-fallback dialog exactly as
+  before. **Still unverified** (needs a real Windows/CAESAR II session):
+  whether `SetForegroundWindow`/`keybd_event` actually work as expected
+  against a real prepip.exe window (the well-known Windows
+  foreground-window restriction can sometimes block a background
+  process from stealing focus even when called correctly - flagged, not
+  something this container can test).

@@ -24,9 +24,12 @@ CiiPollingDialog        Shown while waiting for the user to export a CII file
                         Returns True (file ready) or False (user aborted).
 
 MainExpandedDialog      Shown when a *_MAIN._A file exists with no *_MAIN.C2 -
-                        CAESAR II (prepip.exe) has the model open. Tells the
-                        user how to collapse it back and polls for *_MAIN.C2
-                        to reappear. No timeout.
+                        CAESAR II (prepip.exe) has the model open. By the time
+                        it opens, lift_case_builder.py has already made one
+                        silent attempt to collapse the file automatically
+                        (prepip_automation.py); this dialog confirms that and
+                        gives manual instructions as the fallback, polling for
+                        *_MAIN.C2 to reappear. No timeout.
                         Returns True (ready) or False (user aborted).
 
 ElementOverrideDialog   Shown only when a proposed element break has a geometry
@@ -737,15 +740,19 @@ class MainExpandedDialog:
     (prepip.exe) currently has the model open, "expanding" it, and the
     ._A alone doesn't carry all the information a lift case needs (per
     direct instruction, 2026-09-14). Polls for a *_MAIN.C2 file to
-    reappear (the user collapsing it back), closing automatically once
+    reappear (the file being collapsed back), closing automatically once
     one does. No timeout - unlike CiiPollingDialog this isn't bound to a
     subprocess AutoLift itself launched, and the user may legitimately be
     away from CAESAR II for a while before coming back to collapse it.
 
-    Phase 1 only (this dialog): tell the user how to collapse the file
-    back (close CAESAR II entirely, or File > Open / Ctrl+O in prepip.exe)
-    and wait. Automating the collapse itself is Phase 2, explicitly not
-    built yet - see lift_case_builder.py's module docstring.
+    By the time this dialog opens, lift_case_builder.py has already made
+    one silent, best-effort attempt to collapse the file automatically
+    (prepip_automation.try_collapse_main_file - Phase 2, 2026-09-14: finds
+    prepip.exe's window, brings it forward, sends Ctrl+O). The wording
+    here accounts for that (the window jump is explained, not a surprise)
+    while still giving manual instructions as the fallback, since the
+    automated attempt can fail (pywin32 unavailable, window not found, the
+    OS refusing the foreground change) or simply not be enough on its own.
 
     result : True  — a *_MAIN.C2 file appeared, safe to proceed
              False — aborted
@@ -780,7 +787,11 @@ class MainExpandedDialog:
                f"A *_MAIN._A file was found but no *_MAIN.C2 in:\n{self.folder}\n\n"
                f"This means CAESAR II (prepip.exe) currently has the model open, "
                f"which doesn't carry all the information a lift case needs.\n\n"
-               f"Please either:\n"
+               f"AutoLift just tried to bring CAESAR II to the front and trigger "
+               f"File → Open automatically (that's why its window may have "
+               f"jumped forward). If that worked, this continues on its own.\n\n"
+               f"If nothing happened, or you'd rather do it yourself, please "
+               f"either:\n"
                f"  •  Close CAESAR II entirely, or\n"
                f"  •  In prepip.exe, use File → Open (Ctrl+O) to collapse the "
                f"file back\n\n"

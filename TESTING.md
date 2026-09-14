@@ -229,15 +229,31 @@ reporting.
      line's page is gone — the overall "Refresh" button now covers that
      (it already re-checks every open line for new cases).
 
-7. **NEW — CAESAR "file is open" detection.** With a job open in prepip.exe
-   (so only `*_MAIN._A` exists, no `*_MAIN.C2`), try "New Lift Case" on
-   that line. You should get a message explaining the model is open in
-   CAESAR II, asking you to either close CAESAR II entirely or use File →
-   Open (Ctrl+O) in prepip.exe — **not** a lift case silently built from
-   incomplete data. Once you collapse the file back, the dialog should
-   detect it and continue automatically without you needing to click
-   anything. This is Phase 1 only — nothing is automated yet, per your
-   own instruction to get this fallback solid first.
+7. **NEW — CAESAR "file is open" detection, now WITH automation (Phase 2).**
+   With a job open in prepip.exe (so only `*_MAIN._A` exists, no
+   `*_MAIN.C2`), try "New Lift Case" on that line. This is the one most
+   worth watching closely, since it's the newest and least testable from
+   this Linux session:
+   - AutoLift should try, on its own, to find the prepip.exe window,
+     **bring it to the foreground**, and send **Ctrl+O** — you should see
+     CAESAR II jump to the front and its File → Open dialog appear,
+     without you clicking anything.
+   - Right after that, AutoLift's own message should appear too,
+     explaining what it just tried and giving the manual fallback (close
+     CAESAR II entirely, or File → Open / Ctrl+O yourself) in case the
+     automatic part didn't work.
+   - Confirm the lift case creation then continues on its own once
+     `*_MAIN.C2` reappears — you shouldn't need to click anything in
+     AutoLift's own dialog if the automation worked.
+   - **If you have more than one CAESAR II-related window open at once**
+     (matching what you described in Task Manager), confirm it's genuinely
+     the prepip.exe one that gets brought forward, not some other CAESAR
+     window.
+   - If bringing the window forward doesn't work at all (some Windows
+     versions restrict a background process from stealing focus), the
+     manual fallback message should still be there and still work exactly
+     as it did before — please report whether the automatic part worked,
+     since this container can't test the real window/focus behavior.
 
 ---
 

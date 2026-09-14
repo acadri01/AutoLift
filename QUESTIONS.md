@@ -11,6 +11,23 @@ where Claude parks non-blocking questions + logs assumptions
   change to work from within the merged single-window app.
 - Registry rework targets HKCU only (per user decision) — no HKLM/elevated
   fallback path is being built unless later requested.
+- **Phase 2 CAESAR-collapse automation, decide-and-proceed details
+  (2026-09-14)**: within the user's explicit go-ahead ("find the one with
+  prepip.exe, bring it forward, send Ctrl+O"), a few routine engineering
+  calls: (1) match the target window by its OWNING PROCESS's executable
+  name (`prepip.exe`, via `OpenProcess`/`GetModuleFileNameEx`), not by
+  window title text - the user's own description ("two Caesar II
+  windows") implies title text alone can't reliably tell them apart; (2)
+  a SINGLE attempt, not a retry loop - repeatedly stealing focus/sending
+  Ctrl+O every poll tick would be disruptive if the user is mid-task
+  elsewhere; `MainExpandedDialog`'s existing poll (Phase 1) is what
+  actually confirms success or lets the user finish it by hand; (3) every
+  failure mode (pywin32 missing, no window found, the OS refusing the
+  foreground change) degrades silently to "did nothing" rather than
+  surfacing a separate error - the existing Phase 1 dialog already
+  explains what to do either way, so a second failure message would be
+  redundant, and this must never be able to block/crash lift case
+  creation on its own.
 - **Milestone 3's `tk.Tk()` → `tk.Toplevel(parent)` refactor (2026-09-14)**:
   built now rather than deferred again, since it's a routine engineering
   call already directed by SPEC.md's milestone wording, not a genuine

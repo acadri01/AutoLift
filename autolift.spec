@@ -25,7 +25,7 @@ a = Analysis(
         'create_lift_case', 'config', 'copy_main_cii', 'iecho',
         'tool_discovery',
         'lift_case_builder', 'neutral_patcher', 'neutral_reader',
-        'neutral_writer', 'ui_dialogs',
+        'neutral_writer', 'ui_dialogs', 'prepip_automation',
         # documenter (MarkUpGen) modules imported by name
         'lift_documenter', 'app_ui', 'case_meta_ui', 'doc_config',
         'line_new',
@@ -40,7 +40,7 @@ a = Analysis(
         # two original .spec files)
         'PIL._tkinter_finder', 'PIL.ImageGrab',
         'win32clipboard', 'win32con', 'win32com.client', 'pythoncom',
-        'pywintypes',
+        'pywintypes', 'win32api', 'win32gui', 'win32process',
         'pypdf', 'pypdf._writer', 'pypdf._reader',
         'fitz', 'fitz._fitz',
         'reportlab.pdfgen.canvas',
