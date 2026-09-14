@@ -41,26 +41,67 @@ def _default_db_path() -> str:
     return os.path.join(app_paths.autolift_appdata_dir(), DB_NAME)
 
 
+def _copy_db_file(src: str, dst: str) -> None:
+    """
+    Copy a SQLite database file, plus any -journal/-wal/-shm companion
+    files left beside it, to a new location. A plain byte copy is safe
+    here: this only ever runs before any LiftDb connection is opened for
+    either path (see _resolve_db_path) - never while the source is
+    actively being written to.
+    """
+    import shutil
+    shutil.copy2(src, dst)
+    for suffix in ("-journal", "-wal", "-shm"):
+        companion = src + suffix
+        if os.path.isfile(companion):
+            shutil.copy2(companion, dst + suffix)
+
+
 def _resolve_db_path() -> str:
     """
-    The database path to use: whatever `lift_doc_tool.cfg`'s `db=` line
-    already says (an explicit choice, or a legacy pre-2026-09-14 value
-    migrated forward by doc_config.cfg_path()), or - with no prompt at
-    all - the zero-touch default in AutoLift's AppData folder (per direct
-    instruction, 2026-09-14: "Everyone has their own local DB copy... The
-    default path for the DB should be in the AppData folder for
-    'AutoLift'"). A missing/unreachable configured folder (e.g. it was
-    deleted) silently falls back to the same default rather than erroring
-    or re-prompting, keeping every run zero-touch.
+    The database path to use.
 
-    Persists the resolved default back to the config the first time, so
-    it's visible and editable there (the flat key=value file already
-    supports hand-editing `db=` to point elsewhere).
+    `lift_doc_tool.cfg`'s `db=` line, once resolved, is one of:
+      - already the AppData default - use it as-is.
+      - a LEGACY database (its own custom/old location from before the
+        2026-09-14 move to AppData - e.g. a location manually chosen
+        through the old first-run picker this file used to show) that
+        still has real data on disk. Per direct instruction (2026-09-14:
+        "if someone has a legacy version of the DB, it should be possible
+        to migrate the information to the new DB"), that data is copied
+        into the AppData default ONCE - never overwriting an AppData
+        database that already exists and is in use - and `db=` is
+        rewritten to the new location so every following run uses it.
+        The legacy file itself is left untouched (a copy, not a move),
+        so nothing is lost if anything goes wrong.
+      - unset, or pointing at a folder that no longer exists - the
+        zero-touch default in AutoLift's AppData folder is used, with NO
+        prompt (per the same instruction: "The default path for the DB
+        should be in the AppData folder for 'AutoLift'"), and persisted
+        back to the config so it's visible/editable there.
     """
-    configured = doc_config.get("db")
-    if configured and os.path.isdir(os.path.dirname(configured)):
-        return configured
     default = _default_db_path()
+    configured = doc_config.get("db")
+
+    if configured and os.path.abspath(configured) == os.path.abspath(default):
+        return default
+
+    if configured and os.path.isfile(configured):
+        if not os.path.exists(default):
+            try:
+                _copy_db_file(configured, default)
+            except OSError:
+                # Migration is best-effort - keep using the legacy database
+                # in place rather than losing access to it.
+                return configured
+        doc_config.set("db", default)
+        return default
+
+    if configured and os.path.isdir(os.path.dirname(configured)):
+        # An explicit, still-valid location with no file yet (e.g.
+        # hand-edited into the config) - LiftDb creates it there.
+        return configured
+
     doc_config.set("db", default)
     return default
 

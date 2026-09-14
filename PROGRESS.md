@@ -552,3 +552,20 @@ running status log Claude appends to (skim this from mobile)
   exists. **Still unverified** (needs a real Windows session): that a
   genuinely fresh machine actually gets a working, empty database with no
   dialogs at all on first launch.
+
+- 2026-09-14: Follow-up PR comment: "But if someone has a legacy version
+  of the DB, it should be possible to migrate the information to the new
+  DB." The earlier Milestone 5 pass only migrated the CONFIG file forward
+  (so `db=` kept pointing at wherever the database already was); it never
+  actually moved the database's own data into the new AppData location.
+  Fixed in `lift_documenter.py`'s `_resolve_db_path()`: when the
+  configured `db=` points at a real legacy `.db` file that isn't already
+  the AppData default, its data (plus any `-journal`/`-wal`/`-shm`
+  companion files) is copied into the AppData default once (never
+  overwriting an AppData database that already has real data), the
+  legacy file is left in place untouched, and the config is repointed at
+  the new copy. Verified with a real SQLite file this time (actual
+  `CREATE TABLE`/`INSERT`/read-back through the migrated copy, not just
+  path assertions): data survives migration, the legacy file is
+  untouched, repeat calls are a stable no-op, and an already-populated
+  AppData database is never clobbered by a different legacy one.

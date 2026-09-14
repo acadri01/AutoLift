@@ -226,7 +226,33 @@ where Claude parks non-blocking questions + logs assumptions
   `default_spacing_mm()` round-trip through the new location, the
   zero-touch default path with no prompt, its persistence back to the
   config, and silent recovery when a configured `db=` path's folder no
-  longer exists. Original question preserved below for the record.
+  longer exists.
+  **Follow-up (same day, PR comment)**: "But if someone has a legacy
+  version of the DB, it should be possible to migrate the information to
+  the new DB." Correct catch — the first pass above only migrated the
+  CONFIG file forward (so the `db=` pointer kept working), but never
+  actually moved the DATABASE's own data into the new AppData location,
+  meaning it would keep living wherever it always had, forever invisible
+  outside that old spot. Fixed: `_resolve_db_path()` now, when the
+  configured `db=` points at a real legacy `.db` file that isn't already
+  the AppData default, copies that file's actual data into the AppData
+  default (a copy, not a move - the legacy file is left untouched) and
+  repoints the config at the new copy, so every following run uses the
+  single canonical AppData location. Never overwrites an AppData database
+  that already exists and has real data in it (checked before copying) -
+  important since two different old locations could otherwise clobber
+  each other on two different first-runs-after-update. This is
+  same-person, same-machine data continuity, not the cross-engineer
+  "merge another person's database" idea from earlier in the same
+  reply - that one is still correctly left as a future enhancement below,
+  since reconciling two INDEPENDENT people's overlapping records is a
+  materially different (and harder) problem than carrying one person's
+  own data forward. Verified via a new headless test with a real SQLite
+  file (actual `CREATE TABLE`/`INSERT`/read-back, not just path
+  assertions): the legacy DB's real data lands in the migrated copy, the
+  legacy file survives untouched, a second run is a stable no-op, and an
+  already-populated AppData database is never overwritten by a different
+  legacy one. Original question preserved below for the record.
 - Original question, preserved for context: **What should "zero-touch
   first-run" actually mean for config/DB location, and is it worth
   building?** SPEC.md's milestone 5 says to

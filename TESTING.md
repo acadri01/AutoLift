@@ -182,6 +182,13 @@ reporting.
      database, same settings) rather than starting you over with an
      empty one — confirm your existing lift cases/work orders are still
      there in the tree, not reset.
+   - **Your actual database file gets copied into AppData too**, not just
+     pointed at from afar — after that first launch, check that
+     `%LOCALAPPDATA%\AutoLift\lift_markup.db` is a real file containing
+     your existing lift cases (open the Documenter and confirm they're
+     all there), and that your OLD database file (wherever it used to
+     live) is still there too, untouched — this is a copy, your original
+     is never deleted or modified.
    - This is a foundational change (every config/DB read or write now
      goes through a different path) — please do a normal full session
      (open a line, view a case) rather than just checking the folder

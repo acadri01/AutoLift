@@ -141,11 +141,16 @@ runnable commit per CLAUDE.md.
    defaults into that same folder with zero prompts (replacing the old
    one-click "choose a database location" first-run dialog), and silently
    self-heals back to that default if its configured location ever
-   becomes unreachable. (argv dispatch and HKCU registration already
-   shipped in Phase 0.) Still open: whether to add a "merge another
-   engineer's database" action to Database admin, for when someone takes
-   over a colleague's files — flagged as a possible future enhancement,
-   not built (see QUESTIONS.md).
+   becomes unreachable. A legacy database's actual DATA (not just its
+   config pointer) is also migrated into the new AppData location once,
+   per a same-day follow-up instruction — never overwriting an AppData
+   database that's already in use. (argv dispatch and HKCU registration
+   already shipped in Phase 0.) Still open: whether to add a "merge
+   another engineer's database" action to Database admin, for when
+   someone takes over a colleague's files — a materially different,
+   harder problem than the same-person migration above (reconciling two
+   independent people's overlapping records) — flagged as a possible
+   future enhancement, not built (see QUESTIONS.md).
 6. **RUN_PENDING completion detection.** A new `.c2db`-mtime watcher (same
    shape as `ui_dialogs.CiiPollingDialog`) — no existing "C2Watchdog"
    pattern was found to reuse, so this is new work. Lowest priority; the
