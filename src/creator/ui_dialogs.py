@@ -745,14 +745,22 @@ class MainExpandedDialog:
     subprocess AutoLift itself launched, and the user may legitimately be
     away from CAESAR II for a while before coming back to collapse it.
 
-    By the time this dialog opens, lift_case_builder.py has already made
-    one silent, best-effort attempt to collapse the file automatically
-    (prepip_automation.try_collapse_main_file - Phase 2, 2026-09-14: finds
-    prepip.exe's window, brings it forward, sends Ctrl+O). The wording
-    here accounts for that (the window jump is explained, not a surprise)
-    while still giving manual instructions as the fallback, since the
-    automated attempt can fail (pywin32 unavailable, window not found, the
-    OS refusing the foreground change) or simply not be enough on its own.
+    This dialog OWNS the automated-collapse attempt (Phase 2, 2026-09-14 -
+    see prepip_automation.py): once it's actually visible on screen, it
+    schedules bring_prepip_forward() after a short delay, then
+    send_ctrl_o() after another short delay once that succeeds - never
+    all at once, and never before the dialog itself has had time to
+    appear. A same-day follow-up report ("it seems like it happens before
+    the dialogue explaining it opens... have the dialogue open, then
+    bring forward, then do the open file command. Allow some time between
+    each") is why - the first two passes ran the whole sequence
+    synchronously in lift_case_builder.py, before this dialog ever
+    opened, racing CAESAR's own window activity against AutoLift
+    immediately opening a new window that steals focus straight back.
+    The automated attempt can still fail (window not found, the OS
+    refusing the foreground change) or simply not be enough on its own -
+    the manual instructions in the dialog's own text are the fallback
+    either way.
 
     result : True  — a *_MAIN.C2 file appeared, safe to proceed
              False — aborted
@@ -760,6 +768,13 @@ class MainExpandedDialog:
 
     POLL_INTERVAL_MS = 1000
     _MAIN_C2_RE = re.compile(r'.+_MAIN\.C2$', re.IGNORECASE)
+
+    # Per direct instruction (2026-09-14 follow-up, after the automation
+    # first raced this dialog's own opening): show the dialog fully
+    # first, THEN bring prepip.exe forward, THEN (another delay later)
+    # send Ctrl+O - never all three at once.
+    _AUTOMATION_START_DELAY_MS = 600
+    _AUTOMATION_KEYSTROKE_DELAY_MS = 500
 
     def __init__(self, folder: Path, parent: Optional[tk.Misc] = None):
         self.folder = folder
@@ -774,7 +789,32 @@ class MainExpandedDialog:
         _center(self.root)
         _focus_window(self.root)
         self._poll()
+        self.root.after(self._AUTOMATION_START_DELAY_MS, self._start_automation)
         _run_modal(self.root, parent)
+
+    def _start_automation(self):
+        """
+        Runs once this dialog has had time to actually appear on screen
+        (per direct instruction, 2026-09-14 follow-up - the first version
+        attempted this before the dialog ever opened, racing CAESAR's own
+        window activity against AutoLift immediately stealing focus back
+        by opening a new window). Best-effort; any failure here just
+        means the manual instructions already on screen are the fallback.
+        """
+        try:
+            import prepip_automation
+            hwnd = prepip_automation.bring_prepip_forward()
+        except Exception:
+            hwnd = None
+        if hwnd is not None:
+            self.root.after(self._AUTOMATION_KEYSTROKE_DELAY_MS, self._send_automation_keystroke)
+
+    def _send_automation_keystroke(self):
+        try:
+            import prepip_automation
+            prepip_automation.send_ctrl_o()
+        except Exception:
+            pass
 
     def _build_ui(self):
         pad = dict(padx=16, pady=8)
@@ -787,10 +827,11 @@ class MainExpandedDialog:
                f"A *_MAIN._A file was found but no *_MAIN.C2 in:\n{self.folder}\n\n"
                f"This means CAESAR II (prepip.exe) currently has the model open, "
                f"which doesn't carry all the information a lift case needs.\n\n"
-               f"AutoLift just tried to bring CAESAR II to the front and trigger "
-               f"File → Open automatically (that's why its window may have "
-               f"jumped forward). If that worked, this continues on its own.\n\n"
-               f"If nothing happened, or you'd rather do it yourself, please "
+               f"In a moment, AutoLift will try to bring CAESAR II to the front "
+               f"and trigger File → Open automatically (that's why its window "
+               f"may jump forward shortly). If that works, this continues on "
+               f"its own.\n\n"
+               f"If nothing happens, or you'd rather do it yourself, please "
                f"either:\n"
                f"  •  Close CAESAR II entirely, or\n"
                f"  •  In prepip.exe, use File → Open (Ctrl+O) to collapse the "

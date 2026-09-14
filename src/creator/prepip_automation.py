@@ -44,11 +44,23 @@ folder (see app_paths.py) - not shown to the user, but gives something
 concrete to look at if this still doesn't work rather than guessing a
 third time blind.
 
-This is a single, best-effort attempt - not a loop, and never the only
-path: MainExpandedDialog still polls for *_MAIN.C2 to reappear regardless
-of whether this does anything, so a user who prefers to do it by hand (or
-whose window couldn't be found/brought forward) is never stuck waiting on
-automation that didn't work.
+Third pass (same day, second real-machine follow-up): "it seems like it
+happens before the dialogue explaining it opens. So perhaps have the
+dialogue open, then bring forward, then do the open file command. Allow
+some time between each." The first two passes ran the whole sequence
+synchronously, before MainExpandedDialog ever opened - racing CAESAR's
+own window activity against AutoLift immediately opening a new dialog
+that steals focus straight back. Split into two functions
+(bring_prepip_forward, send_ctrl_o) for exactly this reason:
+MainExpandedDialog now shows itself FIRST, then schedules each step with
+its own delay via root.after() - dialog shown, then bring forward, then
+(another delay later) send Ctrl+O - instead of firing all three at once.
+
+Each step is still a single, best-effort attempt - not a loop, and never
+the only path: MainExpandedDialog still polls for *_MAIN.C2 to reappear
+regardless of whether this does anything, so a user who prefers to do it
+by hand (or whose window couldn't be found/brought forward) is never
+stuck waiting on automation that didn't work.
 
 Windows-only. Every failure mode is swallowed and reported as "did
 nothing", never raised - this must never be able to crash or block lift
@@ -334,34 +346,50 @@ def _send_ctrl_o() -> None:
     u32.keybd_event(_VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
 
 
-def try_collapse_main_file() -> bool:
+def bring_prepip_forward() -> Optional[int]:
     """
-    Best-effort, single attempt: find prepip.exe's window, bring it to
-    the foreground, and send Ctrl+O (File > Open) - the same action a
-    user already takes by hand to collapse an expanded model back to
-    *_MAIN.C2.
+    Find prepip.exe's window and bring it to the foreground. Returns the
+    window handle on success, None on any failure (nothing found, or the
+    OS refused the foreground change).
 
-    Returns True if a prepip.exe window was found and brought to the
-    foreground (Ctrl+O was sent to it) - NOT a guarantee the file
-    actually collapsed, only that the attempt was made. Returns False on
-    any failure. Either way, the caller's own polling (MainExpandedDialog)
-    is what actually confirms success, and the manual instructions remain
-    the fallback. A trace of the attempt is always flushed to AppData's
-    prepip_automation.log, success or failure.
+    Split from sending the keystroke - and meant to be called with a
+    delay BEFORE it (dialog first shown, then this), and another delay
+    BEFORE send_ctrl_o() after it - per direct instruction (2026-09-14
+    follow-up, after the first version raced everything at once with no
+    dialog shown first): "it seems like it happens before the dialogue
+    explaining it opens. So perhaps have the dialogue open, then bring
+    forward, then do the open file command. Allow some time between
+    each." MainExpandedDialog owns that sequencing via root.after(); this
+    function does exactly one thing so it composes cleanly with that.
+    Flushes its own trace to AppData's prepip_automation.log.
     """
     _log_lines.clear()
     try:
         hwnd = find_prepip_window()
         if hwnd is None:
-            return False
+            return None
         if not _bring_to_foreground(hwnd):
-            return False
-        try:
-            _send_ctrl_o()
-            _log("Ctrl+O sent")
-        except Exception as e:
-            _log(f"_send_ctrl_o failed: {e}")
-            return False
-        return True
+            return None
+        return hwnd
+    finally:
+        _flush_log()
+
+
+def send_ctrl_o() -> None:
+    """
+    Send Ctrl+O to whatever currently has focus. Call only after
+    bring_prepip_forward() returned a real hwnd, with a short delay in
+    between (see bring_prepip_forward's docstring) so Windows has time to
+    actually finish the foreground-window transition first, rather than
+    the keystroke racing it. Never raises - failures are logged, not
+    propagated, since this is the last, best-effort step of an already
+    best-effort feature.
+    """
+    _log_lines.clear()
+    try:
+        _send_ctrl_o()
+        _log("Ctrl+O sent")
+    except Exception as e:
+        _log(f"send_ctrl_o failed: {e}")
     finally:
         _flush_log()

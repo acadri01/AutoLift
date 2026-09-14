@@ -806,3 +806,58 @@ running status log Claude appends to (skim this from mobile)
   behaviour): whether this actually works now. If it still doesn't, the
   new log file should make the next round of feedback far more specific
   than "does not seem to do anything."
+
+- 2026-09-14: Third real-machine follow-up on the CAESAR automation, same
+  day: "it seems like it happens before the dialogue explaining it opens.
+  So perhaps have the dialogue open, then bring forward, then do the open
+  file command. Allow some time between each?" Correct diagnosis - the
+  first two passes ran the whole sequence (find window, bring forward,
+  send Ctrl+O) synchronously in `lift_case_builder.py`, BEFORE
+  `MainExpandedDialog` ever opened, meaning AutoLift's own dialog would
+  open right afterward and immediately steal focus back (its
+  `_focus_window()` forces topmost/focus), likely interrupting whatever
+  CAESAR was doing in response to the keystroke before it could register.
+  Fixed by moving the whole sequence's OWNERSHIP into the dialog itself,
+  with real delays between each step:
+  - `prepip_automation.py`: `try_collapse_main_file()` replaced with two
+    separate functions, `bring_prepip_forward()` (find + foreground) and
+    `send_ctrl_o()` (just the keystroke), each independently loggable/
+    callable.
+  - `ui_dialogs.py`'s `MainExpandedDialog`: now shows itself fully FIRST
+    (unchanged from before), THEN schedules `bring_prepip_forward()` via
+    `root.after(600ms, ...)` - giving the dialog time to actually paint
+    on screen - and only schedules `send_ctrl_o()` via a SECOND
+    `root.after(500ms, ...)` once `bring_prepip_forward()` found and
+    focused a window, giving Windows time to actually complete the
+    foreground-window transition before the keystroke fires. Neither
+    step blocks the Tkinter event loop (no `time.sleep()` anywhere) -
+    both delays are scheduled callbacks, so the dialog itself (and its
+    own poll-for-`.C2` loop) stays fully responsive throughout.
+  - `lift_case_builder.py`'s Step 1b no longer imports/calls
+    `prepip_automation` at all - that responsibility moved entirely into
+    the dialog, which is the only thing that can correctly sequence
+    "after I'm visible" in the first place.
+  - Dialog wording adjusted from "AutoLift just tried..." (past tense,
+    was already inaccurate under the old synchronous ordering too) to
+    "In a moment, AutoLift will try..." matching the new sequencing.
+  Verified via headless tests: `prepip_automation`'s split API (each
+  function does exactly one thing, `bring_prepip_forward()` never sends a
+  keystroke on its own, `send_ctrl_o()` never raises even if the
+  underlying call fails, the log still records each step); the dialog's
+  own `_start_automation`/`_send_automation_keystroke` orchestration
+  (using a fake Tk root whose `.after()` just records scheduled
+  callbacks, invoked manually to simulate the delay firing) - confirms
+  the keystroke is genuinely deferred to a second, separate scheduled
+  callback rather than firing immediately, that finding no window
+  schedules nothing further, and that an exception at either stage is
+  swallowed without propagating; and re-ran every earlier regression
+  suite (bend-logic geometry, AppData/DB migration, Milestone-4
+  parent-threading, the CAESAR-detection scenarios with the
+  `lift_case_builder.py` call site updated to confirm it no longer
+  touches `prepip_automation` directly at all) - all still pass.
+  **Still unverified** (same caveat as every round of this feature): the
+  actual real-machine timing/behavior. The debug log
+  (`prepip_automation.log`) still applies unchanged and should now show
+  two separate timestamped blocks per attempt (one for the foreground
+  step, one for the keystroke) rather than one, making the actual gap
+  between them visible if it's ever worth tuning the delay values.

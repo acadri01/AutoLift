@@ -43,6 +43,25 @@ where Claude parks non-blocking questions + logs assumptions
   guess. This wasn't escalated back to the user as a question - it's a
   bug-fix/robustness pass within the already-approved Phase 2 automation,
   not a new design decision.
+- **Phase 2 sequencing fix (2026-09-14, same day, third round - the user
+  correctly diagnosed the real bug)**: "it seems like it happens before
+  the dialogue explaining it opens. So perhaps have the dialogue open,
+  then bring forward, then do the open file command. Allow some time
+  between each?" This wasn't a guess to escalate - it's a precise,
+  correct bug report: the first two passes ran the whole automation
+  sequence synchronously BEFORE `MainExpandedDialog` ever opened, so
+  AutoLift's own dialog (which forces itself to the front on open) would
+  immediately steal focus back right after stealing it FOR CAESAR,
+  racing/interrupting whatever CAESAR was doing with the keystroke.
+  Implemented exactly as suggested: the dialog now opens first, and the
+  automation is split into two functions
+  (`bring_prepip_forward`/`send_ctrl_o`) that the dialog itself schedules
+  with real delays via `root.after()` (600ms before bringing the window
+  forward, another 500ms before sending Ctrl+O) - no `time.sleep()`
+  anywhere, so the dialog's own UI and polling stay fully responsive
+  throughout. `lift_case_builder.py` no longer touches
+  `prepip_automation` at all; only `MainExpandedDialog` does, since it's
+  the only thing that can correctly know "I'm visible now."
 - **Milestone 3's `tk.Tk()` → `tk.Toplevel(parent)` refactor (2026-09-14)**:
   built now rather than deferred again, since it's a routine engineering
   call already directed by SPEC.md's milestone wording, not a genuine
