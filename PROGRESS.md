@@ -884,3 +884,11 @@ running status log Claude appends to (skim this from mobile)
   outstanding (previous round collapsed into a reference `<details>` block),
   and Step 1's "get the code" instructions point at `main` instead of the
   now-merged feature branch.
+- Updated README.md to match what's actually shipped: Status blurb now
+  covers the bend-aware placement, AppData migration, WO/Line/case-creation
+  UI, and CAESAR automation work merged since Phase 0 (was still describing
+  Phase 0 as current); fixed the "Sync cases" button reference (removed,
+  now the overall Refresh button) in the Creator/Documenter handshake
+  section; noted the new WO-level FINALIZATION folder alongside the
+  existing per-line one; and rewrote the "built vs. designed" table to
+  reflect current reality instead of the pre-Milestone-3 snapshot.
