@@ -460,3 +460,39 @@ running status log Claude appends to (skim this from mobile)
   actually renders and behaves correctly end-to-end, in both the
   standalone exe and (once Milestone 4 wires a caller) embedded in a host
   window - flagged in TESTING.md.
+
+- 2026-09-14: Completed Milestone 4 — wired a "Create lift case..." entry
+  point into `DocumenterApp`'s nav-tree right-click menu (line level),
+  calling the now-in-process-safe Creator stage directly: no second
+  window, no subprocess, matching SPEC.md's milestone 4 wording exactly.
+  `app_ui.py`'s new `_create_lift_case(line_id)` resolves the line's
+  `00_CII` folder (added `line_layout.cii_dir()`, a small helper mirroring
+  the existing `refs_dir`/`final_dir` pattern) as the Creator's starting
+  folder when it already exists (falls back to `None`, letting the
+  Creator's own FolderSelectDialog prompt, exactly like the standalone
+  entry point's own resolution fallback), then calls
+  `lift_case_builder.run(initial_folder=..., parent=self)` — DocumenterApp
+  IS a `tk.Tk`, so it's a valid `parent` for every dialog `run()` opens
+  (per Milestone 3's `tk.Toplevel(parent)` support). On success, ingests
+  the freshly written sidecar (`db.ingest_sidecars`, the same call
+  `LinePanel`'s existing "Check for new cases" button already uses),
+  reloads the line's tree leaves, and refreshes the line panel's overview
+  if it's the one currently showing. `launcher.py` already puts
+  `src/creator` on `sys.path` before dispatching to either program, so no
+  new cross-package plumbing was needed beyond the lazy
+  `import lift_case_builder` inside the new method (matching the existing
+  lazy-cross-import pattern `lift_case_builder.py`'s own
+  `_write_documenter_sidecar` already uses for `line_layout`).
+  Verified: `py_compile` clean; a headless import of `app_ui.py` against a
+  full stub of `tkinter`/`tkinter.ttk`/`messagebox`/`filedialog` plus its
+  sibling documenter modules (this Linux container has no real `tkinter` -
+  same constraint as Milestone 3); then called `_create_lift_case`
+  directly against a fake `DocumenterApp`-like object and a stubbed
+  `lift_case_builder.run`, confirming: `flush()` runs first, the resolved
+  `00_CII` folder and `self` (as `parent`) are passed to `run()` exactly,
+  `ingest_sidecars`/`reload_line` run only after a successful result, and
+  the currently-shown line panel's `show_overview()` fires only when it's
+  the SAME line just processed. **Still unverified** (needs a real
+  Windows/Tkinter session): actually clicking "Create lift case..." from
+  the Documenter and watching a dialog open as a child of the main window
+  rather than its own separate top-level window - flagged in TESTING.md.

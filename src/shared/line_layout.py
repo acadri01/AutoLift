@@ -60,6 +60,11 @@ def sidecar_dir(line_root: str, create: bool = False) -> str:
     return d
 
 
+def cii_dir(line_root: str) -> str:
+    """<line>/00_CII - where the generator runs and *_MAIN.C2 lives."""
+    return os.path.join(line_root, CII_DIR)
+
+
 def refs_dir(line_root: str) -> str:
     return os.path.join(line_root, REFS_DIR)
 

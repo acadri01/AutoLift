@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import tkinter as tk
 from pathlib import Path
 from typing import List, Optional
 
@@ -82,11 +83,19 @@ def _build_new_name(prefix: str, nodes: List[str], folder: Path, ext: str) -> st
 # Main entry
 # ---------------------------------------------------------------------------
 
-def run(initial_folder: Optional[Path] = None) -> bool:
+def run(initial_folder: Optional[Path] = None,
+        parent: Optional[tk.Misc] = None) -> bool:
     """
     Execute the full lift case creation workflow.
 
     initial_folder : from %V context menu arg, or None to prompt.
+    parent : the host window's Tk root, when called in-process from a
+        Documenter-embedded entry point (Milestone 4) — every dialog this
+        function shows is opened as a modal child of it
+        (tk.Toplevel(parent), see ui_dialogs._new_dialog_root/_run_modal)
+        instead of its own top-level window. None (default, every call
+        before Milestone 4) preserves today's exact standalone behaviour:
+        each dialog is its own tk.Tk() window.
 
     Returns True if the workflow completed or was cleanly cancelled by the
     user (nothing left to report — every path already showed its own
@@ -118,11 +127,11 @@ def run(initial_folder: Optional[Path] = None) -> bool:
             folder = initial_folder
         else:
             # Folder exists but has no _MAIN — show dialog so user can correct
-            folder = prompt_folder(initial_folder)
+            folder = prompt_folder(initial_folder, parent=parent)
             if folder is None:
                 return True
     else:
-        folder = prompt_folder(initial_folder)
+        folder = prompt_folder(initial_folder, parent=parent)
         if folder is None:
             return True
 
@@ -138,14 +147,14 @@ def run(initial_folder: Optional[Path] = None) -> bool:
 
     # ── Step 2: Prompt for lifted nodes ──────────────────────────────────────
     # Nothing has been written to disk yet — cancellation is clean.
-    nodes = prompt_nodes(prefix)
+    nodes = prompt_nodes(prefix, parent=parent)
     if nodes is None:
         return True
 
     # ── Step 3: Prompt for per-node parameters ────────────────────────────────
     params: Optional[LiftParams] = None
     if nodes:
-        params = prompt_lift_params(prefix, nodes)
+        params = prompt_lift_params(prefix, nodes, parent=parent)
         if params is None:
             return True
 
@@ -190,6 +199,7 @@ def run(initial_folder: Optional[Path] = None) -> bool:
         reference_mtime=reference_mtime,
         c2_name=new_c2_name,
         proc=proc,
+        parent=parent,
     )
 
     if not ready:
@@ -236,7 +246,7 @@ def run(initial_folder: Optional[Path] = None) -> bool:
         return False
 
     def _override_callback(**kwargs):
-        return prompt_element_override(**kwargs)
+        return prompt_element_override(parent=parent, **kwargs)
 
     try:
         result = patch_model(

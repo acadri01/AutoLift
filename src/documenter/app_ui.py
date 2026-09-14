@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from typing import Dict, Optional
 
@@ -479,6 +480,9 @@ class DocumenterApp(tk.Tk):
             m.add_command(label="Archive work order",
                           command=lambda: self._archive_wo(int(sid)))
         elif kind == "line":
+            m.add_command(label="Create lift case...",
+                          command=lambda: self._create_lift_case(int(sid)))
+            m.add_separator()
             m.add_command(label="Archive line",
                           command=lambda: self._archive_line(int(sid)))
         elif kind == "case":
@@ -506,6 +510,49 @@ class DocumenterApp(tk.Tk):
         self.db.archive_wo(wo_id)
         self.refresh()
         self.say(f"Work order {wo['wo_no']} archived.")
+
+    def _create_lift_case(self, line_id: int):
+        """
+        Run the Creator's full lift-case workflow in-process for this line
+        (Milestone 4) - no second window, no subprocess. The Creator's own
+        dialogs (folder confirm, node entry, parameters, the iecho-export
+        wait screen, and any element-override prompt) open as modal
+        children of THIS window (tk.Toplevel(self), since DocumenterApp is
+        itself a tk.Tk and so a valid `parent` - see ui_dialogs.py's
+        Milestone-3 refactor and lift_case_builder.run()'s `parent` param).
+
+        lift_case_builder.run() never raises/exits on cancel or error - it
+        already showed its own message in either case, so there's nothing
+        further to report here on a False/cancelled result.
+        """
+        ln = self.db.get_line(line_id)
+        if not ln:
+            return
+        wo = self.db.get_wo(ln["wo_id"])
+        folder = ln["folder"] or os.path.join(wo["folder"] or "", ln["line_no"])
+        self.flush()
+
+        import line_layout as LL
+        cii_folder = LL.cii_dir(folder) if folder else ""
+        initial = Path(cii_folder) if cii_folder and os.path.isdir(cii_folder) else None
+
+        import lift_case_builder
+        ok = lift_case_builder.run(initial_folder=initial, parent=self)
+        if not ok:
+            return
+
+        # Pick up the freshly generated case (sidecar) without reopening -
+        # same ingest LinePanel's own "Check for new cases" button uses.
+        res = self.db.ingest_sidecars(ln["wo_id"], folder)
+        self.reload_line(line_id)
+        if self._panel_key == ("line", line_id) and isinstance(self._panel, LinePanel):
+            self._panel.show_overview()
+
+        added, updated = res["added"], res["updated"]
+        if added or updated:
+            self.say(f"Lift case created — {added} added, {updated} updated.")
+        else:
+            self.say("Lift case workflow finished.")
 
     def _archive_line(self, line_id: int):
         ln = self.db.get_line(line_id)
