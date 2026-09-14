@@ -56,60 +56,68 @@ you're on the latest commit.
      install folder or the `Lifting_Calcs` container folder no longer adds
      anything new to the tree.
 
-2. **New engineering logic in the Creator — now also skips vertical runs,
-   and fixes a real "placed a displacement on a bend" bug.**
-   `neutral_patcher.py` walks past a rigid element, reducer, or expansion
-   joint next to a lift/support node (instead of splitting it, which
-   CAESAR can't accept a displacement on) to find the next plain pipe
-   element, and now ALSO skips any element with a vertical component (a
-   riser) — a lift point needs a horizontal run to sit on. "Vertical" is
-   read from the file's own IZUP flag, not assumed — CAESAR II models can
-   use either global Y or global Z as vertical, and both appear in real
-   files. If the requested spacing doesn't fit what's actually usable on a
-   candidate element — because the element itself is too short, a bend
-   eats into it, or both — the walk keeps going outward, repeating until
-   it finds an element that can hold the FULL requested spacing, never
-   silently settling for less on a nearby insufficient element (the
-   spacing shown shrinking on each subsequent warning as you saw is
-   expected — it's the same requested distance measured from the support
-   node, just from a point further along; see the PR reply for the exact
-   numbers).
+2. **"Distance from support" redesign — please re-check the exact job that
+   showed the 750mm/495.6mm mismatch.**
+   You reported that a requested 750mm spacing was landing only 495.61mm
+   away in the horizontal plane (measured as `sqrt(dx²+dz²)` between the
+   support and the new lift node in CAESAR), and that the resulting
+   placement — just after a bend — looked strange. That's because the old
+   code measured "distance from support" as the SUM OF ELEMENT LENGTHS
+   walked, which only equals straight-line distance on a dead-straight
+   run; once the walk crosses a vertical riser or a bend (now routine,
+   after the previous two fixes), that stops being true.
 
-   **The bug you hit** ("this caused a bend to break"): when a chain of
-   skips landed the walk right next to a bend, the fallback that places a
-   displacement once the requested spacing is used up only ever checked
-   for a bend at the FAR end of the element it landed on — never at the
-   NEAR end (the exact point the walk had just arrived at). If that point
-   was itself a bend corner, the displacement got placed inside the
-   bend's own tangent zone. Now both ends of every candidate element are
-   checked, and a near-side bend clamps the placement out to that bend's
-   own minimum clearance instead of landing on top of it. Confirmed this
-   was a real, live issue on a real file: `44002.cii` (used throughout
-   this project's verification) has two of the affected real bend
-   corners, and the old code would have placed a displacement directly on
-   them.
+   Per your decision, `neutral_patcher.py` now:
+   - Measures "distance from support" as straight-line distance in the
+     **horizontal plane** (ignoring the vertical rise entirely) — the same
+     calculation you did by hand.
+   - **No longer clamps.** If a candidate element's usable zone (after
+     bend clearance) never actually crosses the requested distance, it's
+     skipped outward exactly like a rigid element — never silently placed
+     at the nearest valid point.
+   - Only when a side's walk is genuinely exhausted (nothing further out
+     can reach the requested distance) does it fall back to asking you for
+     the element to use — and now it asks for **only the side that
+     actually needs it**. A dialog with both upstream and downstream
+     fields only appears when a single lifted node's upstream AND
+     downstream are both exhausted at the same time.
 
-   Only if the whole pipe run is exhausted does the walk fall back to the
-   override dialog. Checked so far against real `.cii` files (structural
-   validity, sane numbers, a real reproduction of the exact reported bug
-   shape) and pure-function unit checks — **still unverified**: whether a
-   patched `.CII` actually converts through `iecho.exe` and opens
-   correctly in CAESAR II, and whether the placement now looks right in
-   CAESAR II itself. Please re-run the same job that showed both the
-   vertical-element and the broken-bend issue, confirm the vertical
-   element is skipped and the bend near the final placement is no longer
-   broken, open the result in CAESAR II, and report back.
+   Please re-run the same job from your report (support node 1450,
+   750mm spacing) and confirm in CAESAR: the new lift node's horizontal-
+   plane distance from node 1450 now reads 750mm (not ~495mm), and the
+   placement itself no longer looks like it's sitting immediately past a
+   bend. If any lift point in your models now triggers the override
+   dialog where it didn't before, that's expected on a pipe run genuinely
+   too short/complex to reach the requested distance automatically — check
+   that only the side that actually needs input is shown, and that the
+   from/to nodes you enter produce a sensible split.
 
-   **Also fixed, with your go-ahead**: the applied lift displacement
-   itself was hardcoded to global DY regardless of which axis the file
-   marks as vertical — on a Z-vertical file (like `44002.cii`) this meant
-   the "lift" was being applied sideways, not up. It now applies to DZ on
-   a Z-vertical file and DY on a Y-vertical file, matching whatever the
-   file's own IZUP flag says. **This is the one most worth double-checking
-   in CAESAR II itself**: open a patched Z-vertical job and confirm the
-   applied displacement now shows up in the DZ direction (not DX/DY) at
-   the new node, and that the resulting deflected shape actually looks
-   like a lift (moves the pipe up) rather than a sideways push.
+   Checked so far: a pure-function reproduction of your exact reported
+   scenario (support 1450, 750mm request) now lands at 685mm into the far
+   element with no clamping needed at all, since the vertical risers
+   correctly contribute nothing to the horizontal distance any more; a
+   full rewrite of `/tmp`'s scratch test suite (bend/vertical/rigid/SIF
+   scenarios, hand-verified against the quadratic's own algebra); and a
+   real round-trip against `44002.cii` and `TESTv15.cii` producing clean
+   warnings throughout. **Still unverified**: whether a patched `.CII`
+   actually converts through `iecho.exe` and opens correctly in CAESAR II,
+   and the override dialog's new "only the relevant side" layout (needs a
+   live Windows session to click through).
+
+   **Previously fixed, still worth a quick re-confirm**: vertical runs
+   (risers) are skipped per the file's own IZUP flag, and the near/far
+   bend-clearance check on both ends of a candidate element (the "bend
+   broke" fix). Both are unchanged by this round's work, just now used
+   with the corrected distance metric.
+
+   **Also previously fixed, with your go-ahead**: the applied lift
+   displacement itself follows the file's IZUP flag (DZ on a Z-vertical
+   file like `44002.cii`, DY on a Y-vertical file) rather than being
+   hardcoded to DY. **This is the one most worth double-checking in
+   CAESAR II itself**: open a patched Z-vertical job and confirm the
+   applied displacement shows up in the DZ direction (not DX/DY) at the
+   new node, and that the resulting deflected shape actually looks like a
+   lift (moves the pipe up) rather than a sideways push.
 
 Lower priority, internal refactors that should be behaviour-preserving
 (worth a quick sanity pass, not a dedicated test session): the grouped

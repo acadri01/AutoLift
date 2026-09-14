@@ -394,3 +394,35 @@ running status log Claude appends to (skim this from mobile)
   the user, rather than guessed at - the placement algorithm has now had
   three rounds of user-reported issues and a wrong guess here would cost
   more time than asking once. No code changed.
+
+- 2026-09-14: User confirmed a hybrid design ("This is perfect. Build this
+  now.") for the "distance from support" Stop-and-ask: horizontal-plane
+  distance (option B), with a fall-back to a from/to-node override dialog
+  only for whichever side(s) genuinely can't reach it (option C, no more
+  clamping), prompting only for the relevant side unless a single lifted
+  node's upstream AND downstream are both exhausted at once. Implemented in
+  `neutral_patcher.py`: `_horizontal_delta()` projects an element's own
+  delta onto the two axes this file's IZUP flag doesn't mark vertical;
+  `_walk_to_flexible_element` now tracks the walk's horizontal-plane
+  position relative to the support and solves a quadratic in the
+  along-element parameter for the point matching the requested distance,
+  replacing the old `remaining -= length` running subtraction entirely -
+  no clamping anywhere; an element whose valid (bend-adjusted) zone never
+  crosses the target is skipped just like a rigid element. `_resolve_split`/
+  `_handle_short` replaced with `_resolve_splits_for_node`/
+  `_resolve_via_override`: both of a lifted node's needed sides are tried
+  first, then a SINGLE combined override call carries only the field(s)
+  for the side(s) actually exhausted. `ui_dialogs.py`: `ElementOverride`'s
+  four fields are now `Optional[int] = None`; `ElementOverrideDialog`/
+  `prompt_element_override` take a `sides` parameter and only render/
+  require the relevant row(s). Verified via a rewritten
+  `/tmp/verify_bend_logic.py` (hand-computed quadratic roots for every
+  bend/vertical/rigid scenario, plus new tests for the single-vs-combined
+  override call shape) and a real round-trip against `44002.cii` and
+  `TESTv15.cii` - the exact reported scenario (support 1450, 750mm
+  request) now lands at 685mm into the far element with NO clamp needed at
+  all, since the vertical risers correctly contribute zero to horizontal
+  position instead of being wrongly subtracted from a length budget.
+  QUESTIONS.md's Stop-and-ask entry marked resolved. Still outstanding: a
+  live CAESAR II round-trip and a real-machine check of the new dialog UX
+  (both need a Windows session).

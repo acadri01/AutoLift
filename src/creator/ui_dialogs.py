@@ -24,8 +24,11 @@ CiiPollingDialog        Shown while waiting for the user to export a CII file
                         Returns True (file ready) or False (user aborted).
 
 ElementOverrideDialog   Shown only when a proposed element break has a geometry
-                        problem (element shorter than spacing). Allows the user
-                        to confirm or override from/to nodes for each side.
+                        problem (no element reaches the requested horizontal-
+                        plane distance). Only asks for the side(s) actually
+                        exhausted - both fields appear together only when a
+                        single lifted node's upstream AND downstream splits
+                        are both exhausted at once.
                         Returns ElementOverride or None (cancelled).
 """
 
@@ -37,7 +40,7 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -68,11 +71,17 @@ class LiftParams:
 
 @dataclass
 class ElementOverride:
-    """Per-lifted-node override for which element to break on each side."""
-    upstream_from: int
-    upstream_to: int
-    downstream_from: int
-    downstream_to: int
+    """
+    Per-lifted-node override for which element to break on each side.
+
+    Only the side(s) actually prompted for (see ElementOverrideDialog's
+    `sides`) are populated - per direct instruction (2026-09-14), the user
+    is only asked for the side that needs manual input, so the other
+    side's fields stay None rather than being invented."""
+    upstream_from: Optional[int] = None
+    upstream_to: Optional[int] = None
+    downstream_from: Optional[int] = None
+    downstream_to: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -682,19 +691,27 @@ class ElementOverrideDialog:
     """
     Shown when a proposed element break has a geometry problem.
 
+    Only prompts for the side(s) actually named in `sides` - per direct
+    instruction (2026-09-14), the user shouldn't be asked to confirm a side
+    that already resolved fine on its own. Both rows appear together only
+    when a single lifted node's upstream AND downstream splits are both
+    exhausted at once.
+
     result : ElementOverride or None (cancelled)
     """
 
     def __init__(
         self,
         lifted_node: int,
-        upstream_from: int,
-        upstream_to: int,
-        downstream_from: int,
-        downstream_to: int,
         problem: str,
+        sides: Tuple[str, ...] = ("upstream", "downstream"),
+        upstream_from: Optional[int] = None,
+        upstream_to: Optional[int] = None,
+        downstream_from: Optional[int] = None,
+        downstream_to: Optional[int] = None,
     ):
         self.result: Optional[ElementOverride] = None
+        self._sides = sides
 
         self.root = tk.Tk()
         self.root.title(f"Element Override — Node {lifted_node}")
@@ -703,54 +720,66 @@ class ElementOverrideDialog:
 
         self._build_ui(
             lifted_node, upstream_from, upstream_to,
-            downstream_from, downstream_to, problem,
+            downstream_from, downstream_to, problem, sides,
         )
         _center(self.root)
         _focus_window(self.root)
         self.root.mainloop()
 
-    def _build_ui(self, lifted_node, up_from, up_to, dn_from, dn_to, problem):
+    def _build_ui(self, lifted_node, up_from, up_to, dn_from, dn_to, problem, sides):
         pad = dict(padx=12, pady=5)
+        row = 0
 
         _label(self.root, f"Lifted node: {lifted_node}",
-               bold=True).grid(row=0, column=0, columnspan=4,
+               bold=True).grid(row=row, column=0, columnspan=4,
                                 sticky="w", **pad)
+        row += 1
 
         _label(self.root, f"⚠  {problem}",
                fg="#cc4400", wraplength=420).grid(
-            row=1, column=0, columnspan=4, sticky="w",
+            row=row, column=0, columnspan=4, sticky="w",
             padx=12, pady=(0, 8))
+        row += 1
 
         for col, txt in enumerate(["Side", "From node", "To node", ""]):
             _label(self.root, txt, bold=True).grid(
-                row=2, column=col, padx=8, pady=2)
+                row=row, column=col, padx=8, pady=2)
+        row += 1
 
-        _label(self.root, "Upstream").grid(
-            row=3, column=0, padx=8, pady=4, sticky="e")
-        self._up_from = tk.StringVar(value=str(up_from))
-        self._up_to   = tk.StringVar(value=str(up_to))
-        _entry(self.root, self._up_from, width=8).grid(
-            row=3, column=1, padx=4, pady=4)
-        _entry(self.root, self._up_to, width=8).grid(
-            row=3, column=2, padx=4, pady=4)
+        self._up_from = self._up_to = None
+        self._dn_from = self._dn_to = None
 
-        _label(self.root, "Downstream").grid(
-            row=4, column=0, padx=8, pady=4, sticky="e")
-        self._dn_from = tk.StringVar(value=str(dn_from))
-        self._dn_to   = tk.StringVar(value=str(dn_to))
-        _entry(self.root, self._dn_from, width=8).grid(
-            row=4, column=1, padx=4, pady=4)
-        _entry(self.root, self._dn_to, width=8).grid(
-            row=4, column=2, padx=4, pady=4)
+        if "upstream" in sides:
+            _label(self.root, "Upstream").grid(
+                row=row, column=0, padx=8, pady=4, sticky="e")
+            self._up_from = tk.StringVar(value=str(up_from if up_from is not None else ""))
+            self._up_to   = tk.StringVar(value=str(up_to if up_to is not None else ""))
+            _entry(self.root, self._up_from, width=8).grid(
+                row=row, column=1, padx=4, pady=4)
+            _entry(self.root, self._up_to, width=8).grid(
+                row=row, column=2, padx=4, pady=4)
+            row += 1
+
+        if "downstream" in sides:
+            _label(self.root, "Downstream").grid(
+                row=row, column=0, padx=8, pady=4, sticky="e")
+            self._dn_from = tk.StringVar(value=str(dn_from if dn_from is not None else ""))
+            self._dn_to   = tk.StringVar(value=str(dn_to if dn_to is not None else ""))
+            _entry(self.root, self._dn_from, width=8).grid(
+                row=row, column=1, padx=4, pady=4)
+            _entry(self.root, self._dn_to, width=8).grid(
+                row=row, column=2, padx=4, pady=4)
+            row += 1
 
         _label(self.root,
-               "Override the From/To nodes if the suggested elements are incorrect.",
+               "Override the From/To nodes if the suggested element is incorrect.",
                fg="#555555", italic=True, wraplength=420).grid(
-            row=5, column=0, columnspan=4, sticky="w",
+            row=row, column=0, columnspan=4, sticky="w",
             padx=12, pady=(4, 8))
+        row += 1
 
         btn_frame = tk.Frame(self.root)
-        btn_frame.grid(row=6, column=0, columnspan=4, pady=(4, 10))
+        btn_frame.grid(row=row, column=0, columnspan=4, pady=(4, 10))
         _btn(btn_frame, "OK", self._confirm, default=True).pack(
             side="left", padx=6)
         _btn(btn_frame, "Cancel", self._cancel).pack(side="left", padx=6)
@@ -759,11 +788,14 @@ class ElementOverrideDialog:
         self.root.bind("<Escape>",  lambda e: self._cancel())
 
     def _confirm(self):
+        uf = ut = df = dt = None
         try:
-            uf = int(self._up_from.get().strip())
-            ut = int(self._up_to.get().strip())
-            df = int(self._dn_from.get().strip())
-            dt = int(self._dn_to.get().strip())
+            if self._up_from is not None:
+                uf = int(self._up_from.get().strip())
+                ut = int(self._up_to.get().strip())
+            if self._dn_from is not None:
+                df = int(self._dn_from.get().strip())
+                dt = int(self._dn_to.get().strip())
         except ValueError:
             messagebox.showerror("Invalid input",
                                  "All node fields must be integers.",
@@ -833,12 +865,18 @@ def poll_for_cii(
 
 def prompt_element_override(
     lifted_node: int,
-    upstream_from: int, upstream_to: int,
-    downstream_from: int, downstream_to: int,
     problem: str,
+    sides: Tuple[str, ...] = ("upstream", "downstream"),
+    upstream_from: Optional[int] = None,
+    upstream_to: Optional[int] = None,
+    downstream_from: Optional[int] = None,
+    downstream_to: Optional[int] = None,
 ) -> Optional[ElementOverride]:
     d = ElementOverrideDialog(
-        lifted_node, upstream_from, upstream_to,
-        downstream_from, downstream_to, problem,
+        lifted_node=lifted_node,
+        problem=problem,
+        sides=sides,
+        upstream_from=upstream_from, upstream_to=upstream_to,
+        downstream_from=downstream_from, downstream_to=downstream_to,
     )
     return d.result

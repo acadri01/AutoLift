@@ -175,9 +175,51 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
-## Stop-and-ask (blocking - "distance from support" definition, 2026-09-14)
-- **What should "750 mm from the support" mean once the walk crosses a
-  direction change (a vertical riser, a bend)?** Real-machine report, with
+## Stop-and-ask (resolved 2026-09-14 - user confirmed a hybrid design, implemented)
+- **RESOLVED**: user chose a hybrid of options (B) and (C): "I think we
+  should go for something along the lines of option 3. The program should
+  use the method discussed in option 2 to determine the length. However,
+  if this length is exhausted before a suitable placement is found, this
+  should fall back to the user to provide the element to be used by
+  requiring the from and to nodes. I would prefer that the user is then
+  not prompted for both lifting points, only the one that is relevant. If
+  both sides have exhausted the requested length, then the dialogue with
+  both inputs should be provided." - confirmed after I sent back a written
+  understanding summary ("This is perfect. Build this now.").
+  Implemented: `_walk_to_flexible_element` now tracks the walk's actual
+  horizontal-plane position relative to the support (`_horizontal_delta`)
+  and solves a quadratic in the along-element parameter `s` for the point
+  matching the requested horizontal-plane distance, per candidate element -
+  no more `remaining -= length` running subtraction. There is NO clamping
+  left anywhere in the walk: an element whose valid zone (bend-adjusted)
+  never crosses the target distance is skipped exactly like a rigid
+  element, and the walk continues outward. Only when a side's walk is
+  genuinely exhausted (`None`) does it fall back to the override dialog -
+  and `_resolve_splits_for_node`/`_resolve_via_override` now try BOTH of a
+  lifted node's needed sides first, then issue a SINGLE combined
+  `on_override` call containing only the field(s) for the side(s) actually
+  exhausted (both sides' fields together only when both come up empty at
+  once). `ElementOverride`'s four fields are now `Optional[int] = None`,
+  and `ElementOverrideDialog`/`prompt_element_override` take a `sides`
+  parameter that controls which row(s) render - the user is never asked to
+  confirm a side that already resolved on its own.
+  Verified against the exact reported scenario (support 1450, request
+  750mm) in `/tmp/verify_bend_logic.py`: the two vertical risers now
+  correctly contribute ZERO to the horizontal position (rather than having
+  their own lengths wrongly subtracted from a length budget), so the true
+  750mm target is found at 685mm into the far element - comfortably clear
+  of the shared bend's 200mm clearance, with no clamp needed at all. Also
+  re-ran end-to-end against real sample files (44002.cii, TESTv15.cii);
+  both produce clean warnings and, where the pipe run genuinely can't
+  reach 750mm on a side, correctly fall back to the (headless, no-dialog)
+  midpoint placement with an explicit warning rather than a silently wrong
+  number.
+  Still outstanding: a live CAESAR II verification of a patched file, and
+  a real-machine check of the new override-dialog UX (only relevant
+  side(s) shown) - both need a Windows session, see TESTING.md.
+- Original question, preserved for context: **What should "750 mm from the
+  support" mean once the walk crosses a direction change (a vertical riser,
+  a bend)?** Real-machine report, with
   a CAESAR "Between Element Nodes" measurement: `_walk_to_flexible_element`
   has always measured "distance from support" as the SUM OF ELEMENT
   LENGTHS walked (`remaining -= _element_length(e)` at every hop) - this
