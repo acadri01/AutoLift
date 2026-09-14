@@ -188,6 +188,39 @@ where Claude parks non-blocking questions + logs assumptions
   learn, and it was already the right message for "you're at the root,
   pick something."
 
+## Stop-and-ask (blocking - new WO/Line/case-creation features, 2026-09-14)
+- User requested four new features (create work order, create line from a
+  template, a "Create new case" button instead of right-click, and
+  detection of CAESAR's `.C2`/`._A` file-expansion issue) and explicitly
+  asked for a to-do list to confirm before proceeding - posted on the PR,
+  no code changed yet. Two concrete blockers within that request:
+  - **"FINALIZATION" folder scope**: is this a NEW work-order-level folder
+    (one per WO, separate from anything line-specific), or does the user
+    actually mean the existing PER-LINE `<WorkOrder>/<Line>/02_FINALISATION`
+    (`line_layout.py`'s `FINAL_DIR`, British spelling)? The user's wording
+    ("a folder for the work order... with a FINALIZATION folder within")
+    reads as the former, but this decides a real folder-layout detail on
+    real job folders - guessing wrong here isn't cosmetic. Concrete next
+    step once answered: if new/WO-level, add a `FINALIZATION_DIR` constant
+    + helper to `line_layout.py` (mirroring `refs_dir`/`final_dir`/
+    `cii_dir`) and create it alongside the WO folder in the new
+    "create work order" action; if it means the existing per-line one,
+    no new constant needed - the "create line" template (once its zip is
+    available, see below) already covers it.
+  - **`Add_New_Line.zip` isn't reachable from this session**: the user
+    attached it via a GitHub `user-attachments` CDN link
+    (`https://github.com/user-attachments/files/32192689/Add_New_Line.zip`);
+    fetching it returned a 403 with `"This GitHub API path is not
+    available: sessions are bound to their configured repositories"` - this
+    session's GitHub access is scoped to `repos/{owner}/{repo}/...`
+    endpoints only, and a raw attachment CDN link doesn't match that
+    shape. Concrete next step once resolved: whichever way the user
+    re-shares it (committed into the repo under e.g. `templates/
+    Add_New_Line/`, or described directly), implement "create line" as a
+    template walk that string-replaces every `[Add_New_Line]` token in
+    file/folder names and contents with the real line number, writing the
+    result under the selected work order's folder.
+
 ## Stop-and-ask (resolved 2026-09-14 - user answered on the PR, implemented)
 - **RESOLVED**: user replied "Everyone has their own local DB copy, but
   merging databases in the DB admin may be a good option if someone takes

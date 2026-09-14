@@ -586,3 +586,22 @@ running status log Claude appends to (skim this from mobile)
   real fake screenshot + iso PDF at those exact paths and confirming both
   migrate with byte-identical content while the legacy copies survive
   untouched; re-ran the earlier no-clobber test too, still holds.
+
+- 2026-09-14: User requested four new features (create work order, create
+  line from a template, a case-creation button instead of right-click,
+  and detection of CAESAR's .C2/._A file-expansion issue in prepip.exe)
+  and explicitly asked for a to-do list to confirm before proceeding — no
+  code changed this round, per that instruction. Posted the to-do list on
+  the PR with two flagged blockers: (1) whether the requested
+  "FINALIZATION" folder is a new WO-level concept or the existing
+  per-line `02_FINALISATION`, and (2) the attached `Add_New_Line.zip`
+  template couldn't be fetched (this session's GitHub access is
+  repo-scoped only; a direct `user-attachments` CDN link 403'd) — asked
+  the user to commit it into the repo or re-share it another way. Also
+  surfaced a real correctness finding from the user's own domain
+  knowledge: `lift_case_builder.py`'s `_find_main_input()` silently falls
+  back from `_MAIN.C2` to `_MAIN._A` with no warning, which the user says
+  produces an incomplete/incorrect lift case when CAESAR II (prepip.exe)
+  has the file open — logged as a real bug to fix (Phase 1: detect + a
+  manual-fallback prompt; Phase 2, explicitly deferred by the user until
+  Phase 1 is confirmed working: automate collapsing it via Ctrl+O).
