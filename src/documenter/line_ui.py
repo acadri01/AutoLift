@@ -39,7 +39,11 @@ from lift_db import LiftDb
 from preview_pane import PreviewPane
 
 PAD = 6
-THUMB_MAX = (460, 320)
+# Screenshot thumbnail cap on the case screen - kept modest so the screenshot
+# doesn't dominate the vertical space above the supports/lift-points/note
+# sections below it (the full-resolution image is always one click away via
+# "Load file..."/"Copy image").
+THUMB_MAX = (420, 220)
 
 
 class LinePanel(ttk.Frame):
@@ -81,6 +85,8 @@ class LinePanel(ttk.Frame):
         ttk.Button(top, text="Upload iso...", command=self.upload_iso).pack(side="right")
         ttk.Button(top, text="Add existing case...",
                    command=self.add_existing_case).pack(side="right", padx=PAD)
+        ttk.Button(top, text="Export this line...",
+                   command=self.export_line).pack(side="right")
 
         self._cv = tk.Canvas(self, highlightthickness=0)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._cv.yview)
@@ -880,6 +886,34 @@ class LinePanel(ttk.Frame):
             return
         lay = export.load_or_build(self.db, self.case_id, case["sheet_no"], None)
         pdf_render.render(lay, out); self._open_file(out)
+
+    def export_line(self):
+        """Export just this line's isos + lift cases as one issue-ready PDF,
+        using the same page plan/renderer as a full work-order export
+        (work_order.plan/export_work_order already accept a line_order
+        filter) - only the filename defaults to include the line number."""
+        import line_layout as LL
+        import work_order
+        self.flush_pending()
+        p = work_order.plan(self.db, self.wo_id, line_order=[self.line_id])
+        if not p["pages"]:
+            messagebox.showwarning("Export", "Nothing to export for this line.",
+                                   parent=self._top())
+            return
+        wo = self.db.get_wo(self.wo_id)
+        start = LL.final_dir(self.folder)
+        if not os.path.isdir(start):
+            start = self.folder
+        out = filedialog.asksaveasfilename(parent=self._top(), defaultextension=".pdf",
+                initialdir=start,
+                initialfile=f"{wo['wo_no']}_{self.line_no}_STRESS_MARKUP.pdf",
+                filetypes=[("PDF", "*.pdf")])
+        if not out:
+            return
+        work_order.export_work_order(self.db, self.wo_id, out, line_order=[self.line_id])
+        messagebox.showinfo("Export", f"{p['total']} sheet(s) written:\n{out}",
+                            parent=self._top())
+        self._open_file(out)
 
     # ------------------------------------------------------------------
     def _open_editor(self, lay, specs, is_iso, save, backdrop=None, backdrop_page=0):

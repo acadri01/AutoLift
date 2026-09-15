@@ -643,3 +643,59 @@ where Claude parks non-blocking questions + logs assumptions
   "Stop-and-ask (blocking - Milestone 5 ...)" entry above (2026-09-14),
   which found the actual gap is narrower than originally assumed here and
   put concrete options to the user.
+
+## Resolved 2026-09-15 - Documenter window fit-to-screen review, user confirmed per item
+User asked for a full review of the Documenter's windows against "open
+maximized, fit the screen without scrolling," with each change confirmed
+before building (not a blanket go-ahead). Findings + decisions:
+- **Main window (`DocumenterApp`) now opens maximized** — `state("zoomed")`
+  with the `-zoomed` attribute fallback, same pattern the sheet editor
+  already used. Confirmed, built.
+- **Line/iso/case detail panel (`LinePanel`)**: stays wrapped in its
+  existing scroll canvas (removing it outright risked clipping content on
+  smaller screens with no fallback) — relies on the main window now being
+  maximized, plus the note-box auto-hide below, to make scrolling
+  unnecessary in the common case. The case screenshot's `THUMB_MAX` was
+  also shrunk from (460, 320) to (420, 220) to free vertical space, since
+  the full-resolution image is always available via "Load file.../Copy
+  image". Confirmed, built as a best-effort improvement, not a guarantee —
+  a case with many supports/lift points will still scroll regardless of
+  window size, since that's actual per-case data, not fixed chrome.
+- **Work-order lines table (`WoPanel`)**: had no scrollbar at all (fixed
+  `height=9`, so a WO with more than 9 lines had no way to see the rest).
+  User chose a real scrollbar over a dynamically-sized table. Built.
+- **Sheet editor Toplevel**: already opened maximized and already
+  auto-fits the page to the canvas with a "Fit" button — flagged as no
+  change needed, user didn't push back.
+- **Archive browser** (fixed 640x760) and **CaseMetaDialog's lift-points
+  list overflow**: user explicitly said skip both — left as-is.
+- **Iso note box auto-hide when empty** (user's own follow-up, asked
+  before confirming the rest of the list): `layout_builder.
+  ensure_iso_furniture()`'s "isonote" standing-furniture box is no longer
+  created/kept when the iso's note text is empty, in both the editor and
+  the exported PDF; it reappears the instant a note is typed again, at its
+  default position if it had been removed (a manual reposition is not
+  remembered across an empty-then-refilled cycle — the box didn't exist to
+  reposition). User confirmed "auto-hide, reappears automatically" over a
+  manual remove/restore toggle when asked directly.
+- **Export a single line** (separate follow-up mid-review): added an
+  "Export this line..." button directly on `LinePanel` (user's explicit
+  choice over a WO-panel row menu or a selection-aware Export button).
+  Calls the exact same `work_order.plan`/`export_work_order` the
+  whole-work-order export already uses, with `line_order=[self.line_id]`
+  (a pre-existing, already-used filter parameter — no new export logic
+  needed). Default filename is `{wo_no}_{line_no}_STRESS_MARKUP.pdf`
+  instead of `{wo_no}_STRESS_MARKUP.pdf`; whole-WO export is unchanged.
+  Decide-and-proceed detail not asked about: this export has no "Include
+  PENDING cases" checkbox of its own and defaults to `include_pending=
+  False`, matching the WO-level export's own default — revisit if a user
+  actually wants PENDING cases in a single-line export.
+- **Environment note**: this container's `pypdf` install is broken
+  (`cryptography`'s Rust bindings fail to import — `_cffi_backend`
+  missing), confirmed pre-existing and unrelated to this change (same
+  failure on unmodified `main`). This blocks importing `work_order.py` at
+  all here, so the single-line export's actual PDF-writing path could only
+  be verified by reading the code and by testing `work_order.plan()`'s
+  `line_order` filter in isolation (it needs no pypdf import itself) — the
+  real PDF output needs a Windows session to confirm, same as every other
+  export path in this project.

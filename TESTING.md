@@ -22,17 +22,49 @@ This document is two things:
 
 ## Test this now
 
-**Nothing outstanding right now.** Everything below was confirmed working
-by you on the real machine (including the CAESAR automation sequencing fix)
-and [PR #2](https://github.com/acadri01/AutoLift/pull/2) has been merged
-into `main`. If you pull `main` fresh and rebuild
-(`python -m PyInstaller autolift.spec` — Step 3 below, that exact form, not
-bare `pyinstaller`), you should see the same behaviour you already
-confirmed; there's no new ask waiting on you at the moment. The next
-outstanding items (Milestone 6 "RUN_PENDING" detection, and a "merge
-another engineer's database" DB-admin feature) haven't been started yet —
-this section will be rewritten with concrete steps once one of them is
-underway.
+**NEW — Documenter fit-to-screen pass + single-line export, per your review
+request.** None of this touches CAESAR-driving logic, so it's lower-risk
+than past rounds, but it's all Tkinter/PDF-output code this Linux session
+cannot run — please click through it on the real machine.
+
+1. **Documenter opens maximized.** Launch the Documenter (right-click any
+   job folder → "Open Lift Mark-up Documenter"). It should fill the whole
+   screen immediately, not the previous fixed ~1360x840 window. Confirm you
+   can still manually un-maximize/resize it afterwards if you want to.
+2. **Work order lines table has a real scrollbar.** Open a work order with
+   more than 9 lines (or temporarily shrink the window) and confirm the
+   lines table now shows a scrollbar on the right and lets you reach every
+   line — previously, lines beyond the 9th had no way to be reached at all.
+3. **Case screenshot is a bit smaller.** Open any lift case with a
+   screenshot; it should look the same, just modestly smaller
+   (max 420x220 instead of 460x320) — confirm it's still clear enough to
+   read, and that "Load file.../Copy image" still work on the full-res
+   original.
+4. **Iso note box disappears when empty.** Open a line's iso that has
+   **no** note text, click "Edit iso sheet..." — the "Note:" box that used
+   to always sit bottom-left should now be **absent** from the editor
+   canvas (and, once exported, from the PDF). Type something into the
+   iso's note field on the landing page (or inside the editor itself) and
+   re-open/re-export — the note box should reappear showing that text.
+   Clear the note back to empty and confirm it disappears again.
+5. **"Export this line..." button.** Open any line (overview, an iso, or
+   a case — the button should be visible in the top bar regardless of
+   which sub-view you're on) and click "Export this line...". Confirm:
+   - The save dialog defaults to that line's `02_FINALISATION` folder (or
+     the line's own folder if that doesn't exist yet) with filename
+     `<WO>_<Line>_STRESS_MARKUP.pdf`.
+   - The resulting PDF contains only that line's isos + lift cases, in the
+     same order they'd appear inside a full work-order export — not every
+     line in the work order.
+   - "Export work order..." (unchanged) still exports every line as before
+     — this is a genuinely separate, additional export, not a replacement.
+   - A line with nothing to export (no isos, no lift cases) shows a
+     "Nothing to export for this line" message instead of writing an empty
+     file.
+
+Skipped by your choice, not built: resizing the Archive browser to
+maximize, and pre-emptively fixing CaseMetaDialog's lift-points list for
+cases with unusually many lift points.
 
 <details>
 <summary>Previously confirmed round (kept for reference — already verified, no action needed)</summary>

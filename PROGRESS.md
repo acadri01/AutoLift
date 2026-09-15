@@ -892,3 +892,19 @@ running status log Claude appends to (skim this from mobile)
   section; noted the new WO-level FINALIZATION folder alongside the
   existing per-line one; and rewrote the "built vs. designed" table to
   reflect current reality instead of the pre-Milestone-3 snapshot.
+- Documenter fit-to-screen pass, per user request + confirmed item-by-item:
+  main window (`DocumenterApp`) now opens maximized on launch; work-order
+  panel's lines table gained a real vertical scrollbar (previously fixed
+  height=9 with no way to see more lines); case screenshot thumbnail cap
+  shrunk (460,320)->(420,220) to free vertical space on the case screen;
+  and an iso's "isonote" standing-furniture box (layout_builder.
+  ensure_iso_furniture) now only exists while its note text is non-empty,
+  in both the editor and the export, reappearing the moment a note is
+  typed again. Skipped per user: resizing the Archive browser, fixing
+  CaseMetaDialog's lift-points overflow.
+- Added "Export this line..." to LinePanel (per user request, mid-review):
+  exports just the selected line's isos + lift cases via the existing
+  work_order.plan/export_work_order line_order filter (no new export
+  logic needed), defaulting the filename to
+  "<wo_no>_<line_no>_STRESS_MARKUP.pdf". Whole-work-order export in
+  WoPanel is unchanged.
