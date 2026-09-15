@@ -54,15 +54,18 @@ class WoPanel(ttk.Frame):
         ttk.Label(top, text=wo["wo_no"], font=("Segoe UI", 14, "bold")).pack(side="left")
         ttk.Label(top, text="   full stress mark-up", foreground="#666").pack(side="left")
 
+        tvf = ttk.Frame(self._main); tvf.pack(fill="both", expand=True, padx=PAD)
         cols = ("isos", "cases", "ready")
-        self.tv = ttk.Treeview(self._main, columns=cols, show="tree headings",
+        self.tv = ttk.Treeview(tvf, columns=cols, show="tree headings",
                                selectmode="browse", height=9)
         self.tv.heading("#0", text="Line")
         self.tv.heading("isos", text="Isos"); self.tv.heading("cases", text="Lift cases")
         self.tv.heading("ready", text="Ready")
         self.tv.column("#0", width=260); self.tv.column("isos", width=70, anchor="center")
         self.tv.column("cases", width=90, anchor="center"); self.tv.column("ready", width=90, anchor="center")
-        self.tv.pack(fill="both", expand=True, padx=PAD)
+        self.tv.pack(side="left", fill="both", expand=True)
+        tvsb = ttk.Scrollbar(tvf, orient="vertical", command=self.tv.yview)
+        self.tv.configure(yscrollcommand=tvsb.set); tvsb.pack(side="right", fill="y")
         self.tv.bind("<Double-Button-1>", lambda e: self.open_line())
         self.tv.bind("<Button-3>", self._row_menu)
 

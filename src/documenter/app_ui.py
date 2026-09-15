@@ -75,6 +75,15 @@ class DocumenterApp(tk.Tk):
         self.db = db
         self.geometry("1360x840")
         self.minsize(1080, 680)
+        # start maximized (Windows); harmless elsewhere - same fallback
+        # pattern as the sheet editor's Toplevel (line_ui._open_editor)
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            try:
+                self.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
 
         self._panel: Optional[ttk.Frame] = None
         self._panel_key: Optional[tuple] = None     # ("wo", id) | ("line", id)

@@ -27,9 +27,13 @@ def ensure_iso_furniture(lay: M.SheetLayout, page_w: float, page_h: float,
                          total: Optional[int] = None) -> None:
     """
     Guarantee an iso page has its standing furniture - title (top-centre),
-    note (bottom-left), sheet number (bottom-right) - creating any that are
-    missing and refreshing note/sheet text. Positions of existing boxes are
-    never moved. Used by both the editor and the exporter so they agree.
+    sheet number (bottom-right) - creating either that's missing and
+    refreshing their text. The note box (bottom-left) is the exception: it
+    only exists while note_text is non-empty, so a blank note doesn't leave
+    an empty placeholder box on the sheet; it reappears the moment a note is
+    typed again, at its default position if it had been removed. Positions
+    of existing boxes are never moved. Used by both the editor and the
+    exporter so they agree.
     """
     if not lay.box("title"):
         lay.boxes.append(M.TextBox(kind="title", box_id="title",
@@ -38,14 +42,18 @@ def ensure_iso_furniture(lay: M.SheetLayout, page_w: float, page_h: float,
                                    align="center", size=M.TITLE_SIZE, bold=True))
 
     nb = lay.box("isonote")
-    if nb:
-        if note_text:
+    if note_text:
+        if nb:
             nb.text = note_text
-    else:
-        lay.boxes.append(M.TextBox(kind="note", box_id="isonote",
-                                   text=note_text or "Note:\n",
-                                   x=M.MARGIN, y=M.MARGIN + 90, anchor="sw",
-                                   w=360.0))
+        else:
+            lay.boxes.append(M.TextBox(kind="note", box_id="isonote",
+                                       text=note_text,
+                                       x=M.MARGIN, y=M.MARGIN + 90, anchor="sw",
+                                       w=360.0))
+    elif nb:
+        # no note text - drop the box rather than showing an empty
+        # placeholder; it's recreated the moment a note is typed again
+        lay.boxes.remove(nb)
 
     txt = sheet_label(sheet_no, total)
     sb = lay.box("sheet")
