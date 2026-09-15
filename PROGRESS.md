@@ -908,3 +908,8 @@ running status log Claude appends to (skim this from mobile)
   logic needed), defaulting the filename to
   "<wo_no>_<line_no>_STRESS_MARKUP.pdf". Whole-work-order export in
   WoPanel is unchanged.
+- Updated TESTING.md's Step 1 + "Test this now" pointer for PR #5: since
+  the fit-to-screen/single-line-export work isn't merged to main yet,
+  the tutorial now checks out claude/repo-mapping-modules-xomccd (this
+  PR's branch) instead of main, and compares against PR #5 instead of
+  main's commit history - same pattern used before each earlier PR merged.

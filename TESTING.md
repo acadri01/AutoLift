@@ -22,6 +22,14 @@ This document is two things:
 
 ## Test this now
 
+**First: check out the branch this round lives on.** This work hasn't been
+merged to `main` yet — see "Getting the latest changes" under Step 1 below
+(`git checkout claude/repo-mapping-modules-xomccd` then `git pull`), then
+rebuild with `python -m PyInstaller autolift.spec` (Step 3 — that exact
+form, not bare `pyinstaller`). Compare `git log -1 --oneline` against what's
+shown at the top of [PR #5](https://github.com/acadri01/AutoLift/pull/5) to
+confirm you're on the latest commit.
+
 **NEW — Documenter fit-to-screen pass + single-line export, per your review
 request.** None of this touches CAESAR-driving logic, so it's lower-risk
 than past rounds, but it's all Tkinter/PDF-output code this Linux session
@@ -331,12 +339,14 @@ reporting.
 ```
 git clone https://github.com/acadri01/AutoLift.git
 cd AutoLift
+git checkout claude/repo-mapping-modules-xomccd
 ```
 
-(You'll land on `main` by default — that's the branch to build from.
-[PR #2](https://github.com/acadri01/AutoLift/pull/2), which used to be the
-work-in-progress branch this doc pointed you at, has been merged, so no
-extra `git checkout` step is needed any more.)
+(That branch is the current work-in-progress being tested — it's the head
+of [PR #5](https://github.com/acadri01/AutoLift/pull/5), the Documenter
+fit-to-screen pass + single-line export. Once that PR is merged, `main`
+will have it and this checkout step won't be needed — same as the last few
+rounds.)
 
 (If you downloaded a ZIP from GitHub instead, extract it and `cd` into the
 extracted folder — skip the `git` commands, but you'll need to re-download
@@ -344,12 +354,12 @@ the ZIP each time there's an update, since the steps below don't apply.)
 
 ### Getting the latest changes (every time after the first)
 
-History on `main` isn't rewritten — only added to — so a plain `git pull`
-always works cleanly, no force needed:
+History on this branch isn't rewritten — only added to — so a plain
+`git pull` always works cleanly, no force needed:
 
 ```
 cd AutoLift
-git checkout main
+git checkout claude/repo-mapping-modules-xomccd
 git pull
 ```
 
@@ -364,8 +374,8 @@ Two things worth knowing:
   `git checkout -- .` to discard them, then pull.
 
 You can always confirm you're on the latest commit with
-`git log -1 --oneline` and compare against what's shown at the top of the
-[commit history on `main`](https://github.com/acadri01/AutoLift/commits/main).
+`git log -1 --oneline` and compare against what's shown at the top of
+[PR #5](https://github.com/acadri01/AutoLift/pull/5).
 
 ## Step 2 — Install the Python dependencies
 
